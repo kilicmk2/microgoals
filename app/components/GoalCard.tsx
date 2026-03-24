@@ -104,13 +104,18 @@ export default function GoalCard({
 
   return (
     <div
-      className={`group border rounded-lg p-5 transition-all ${
+      className={`group border rounded-lg p-5 transition-all cursor-grab active:cursor-grabbing ${
         !goal.approved
           ? "border-yellow-400 bg-yellow-50"
           : goal.pinned
           ? "border-black bg-neutral-50"
           : "border-neutral-200 hover:border-neutral-400"
       }`}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData("text/plain", goal.id);
+        e.dataTransfer.effectAllowed = "move";
+      }}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">

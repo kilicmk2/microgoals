@@ -109,13 +109,10 @@ export default function Home() {
   );
 
   const handleDropOnHorizon = useCallback(
-    (targetHorizon: TimeHorizon) => {
-      const currentDragId = dragIdRef.current;
-      if (!currentDragId) return;
-      reorderGoals([{ id: currentDragId, order: Math.floor(Date.now() / 1000) % 2000000000, horizon: targetHorizon }]);
+    (goalId: string, targetHorizon: TimeHorizon) => {
+      if (!goalId) return;
+      reorderGoals([{ id: goalId, order: Math.floor(Date.now() / 1000) % 2000000000, horizon: targetHorizon }]);
       setHorizon(targetHorizon);
-      setDragId(null);
-      dragIdRef.current = null;
     },
     [reorderGoals]
   );

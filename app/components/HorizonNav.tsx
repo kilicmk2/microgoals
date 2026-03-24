@@ -15,7 +15,7 @@ interface Props {
   category: GoalCategory;
   goals: Goal[];
   onHorizonChange: (h: TimeHorizon) => void;
-  onDropGoal?: (horizon: TimeHorizon) => void;
+  onDropGoal?: (goalId: string, horizon: TimeHorizon) => void;
 }
 
 export default function HorizonNav({
@@ -55,10 +55,11 @@ export default function HorizonNav({
   function handleDrop(e: React.DragEvent, h: TimeHorizon) {
     e.preventDefault();
     e.stopPropagation();
+    const goalId = e.dataTransfer.getData("text/plain");
+    if (!goalId) return;
     justDroppedRef.current = true;
     setDropTarget(null);
-    onDropGoal?.(h);
-    // Reset after a tick so future clicks work
+    onDropGoal?.(goalId, h);
     setTimeout(() => { justDroppedRef.current = false; }, 300);
   }
 
