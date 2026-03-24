@@ -70,7 +70,7 @@ export function createGoal(
     parentId: null,
     reasoning: "",
     pinned: false,
-    order: Date.now(),
+    order: Math.floor(Date.now() / 1000) % 2000000000,
     ...partial,
   };
 }

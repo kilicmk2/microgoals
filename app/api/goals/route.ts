@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
         parentId: body.parentId || null,
         reasoning: body.reasoning || "",
         pinned: body.pinned || false,
-        order: body.order ?? Date.now(),
+        order: body.order ? Math.min(body.order, 2000000000) : Math.floor(Date.now() / 1000) % 2000000000,
         approved: !needsApproval,
         proposedBy: needsApproval ? (session.user.email ?? "") : null,
       })

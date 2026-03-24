@@ -112,7 +112,7 @@ export default function Home() {
     (targetHorizon: TimeHorizon) => {
       const currentDragId = dragIdRef.current;
       if (!currentDragId) return;
-      reorderGoals([{ id: currentDragId, order: Date.now(), horizon: targetHorizon }]);
+      reorderGoals([{ id: currentDragId, order: Math.floor(Date.now() / 1000) % 2000000000, horizon: targetHorizon }]);
       setHorizon(targetHorizon);
       setDragId(null);
       dragIdRef.current = null;
