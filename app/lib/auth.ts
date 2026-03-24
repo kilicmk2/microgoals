@@ -6,6 +6,7 @@ import { getDb } from "./db";
 export const { handlers, auth, signIn, signOut } = NextAuth(() => ({
   adapter: DrizzleAdapter(getDb()),
   providers: [Google],
+  trustHost: true,
   pages: {
     signIn: "/login",
   },
