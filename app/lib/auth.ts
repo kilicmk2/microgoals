@@ -2,7 +2,13 @@ import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  providers: [Google],
+  providers: [
+    Google({
+      clientId: process.env.AUTH_GOOGLE_ID,
+      clientSecret: process.env.AUTH_GOOGLE_SECRET,
+    }),
+  ],
+  secret: process.env.AUTH_SECRET,
   session: { strategy: "jwt" },
   trustHost: true,
   pages: {
@@ -10,20 +16,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     error: "/login",
   },
   callbacks: {
-    signIn({ profile }) {
+    async signIn({ profile }) {
       return profile?.email?.endsWith("@micro-agi.com") ?? false;
     },
-    jwt({ token, profile }) {
+    async jwt({ token, user, profile }) {
+      if (user) {
+        token.sub = user.id;
+      }
       if (profile) {
-        token.id = profile.sub;
         token.email = profile.email;
         token.name = profile.name;
+        token.picture = profile.picture as string | undefined;
       }
       return token;
     },
-    session({ session, token }) {
+    async session({ session, token }) {
       if (session.user) {
-        session.user.id = token.id as string;
+        session.user.id = token.sub ?? "";
+        session.user.email = token.email ?? "";
+        session.user.name = token.name ?? "";
       }
       return session;
     },
