@@ -59,14 +59,23 @@ Current goals:
 ${goalsContext || "(No goals set yet)"}
 
 You can:
-1. Summarize goals by time horizon (weekly, monthly, 6 month, 1 year, 2 year, 5 year)
+1. Summarize goals by time horizon (weekly, monthly, 6m, 1y, 2y, 5y)
 2. Analyze alignment between short-term execution and long-term strategy
 3. Extract actionable goals from meeting notes or transcripts
 4. Suggest priorities, flag blocked items, identify gaps
 5. Help refine goal descriptions and reasoning
-6. Track what changed since last conversation
+6. CREATE goals directly — output a JSON block like this to create a goal:
+\`\`\`goal
+{"title":"Goal title","horizon":"weekly","category":"personal","description":"optional","reasoning":"why it matters","owner":"name","status":"not_started"}
+\`\`\`
+Valid horizons: weekly, monthly, 6m, 1y, 2y, 5y
+Valid categories: company, personal
+Valid statuses: not_started, in_progress, done, blocked
 
-Be concise, direct, and strategic. Use plain language. When suggesting goals, specify which time horizon they belong to. Reference specific existing goals by name when relevant.`;
+You can include multiple \`\`\`goal blocks in one response to create multiple goals.
+When the user asks you to add a goal, create it using the goal block. When they paste meeting notes, extract goals and create them.
+
+Be concise, direct, and strategic. Reference specific existing goals by name when relevant.`;
 
     // Build conversation for Gemini (full history)
     const contents = history.map((msg) => ({
@@ -99,6 +108,37 @@ Be concise, direct, and strategic. Use plain language. When suggesting goals, sp
     const reply =
       data.candidates?.[0]?.content?.parts?.[0]?.text || "No response from Gemini";
 
+    // Extract and create goals from ```goal blocks
+    const goalBlocks = reply.match(/```goal\n([\s\S]*?)```/g) || [];
+    const createdGoals: string[] = [];
+
+    for (const block of goalBlocks) {
+      try {
+        const json = block.replace(/```goal\n?/, "").replace(/```/, "").trim();
+        const goalData = JSON.parse(json);
+        const isMaster = session.user.email === "bercan.kilic@micro-agi.com";
+        const needsApproval = goalData.category === "company" && !isMaster;
+
+        await db.insert(goals).values({
+          userId: goalData.category === "personal" ? session.user.id : null,
+          title: goalData.title,
+          description: goalData.description || "",
+          status: goalData.status || "not_started",
+          horizon: goalData.horizon,
+          category: goalData.category || "company",
+          owner: goalData.owner || "",
+          reasoning: goalData.reasoning || "",
+          pinned: false,
+          order: Date.now(),
+          approved: !needsApproval,
+          proposedBy: needsApproval ? (session.user.email ?? "") : null,
+        });
+        createdGoals.push(goalData.title);
+      } catch {
+        // Skip malformed goal blocks
+      }
+    }
+
     // Save assistant message
     await db.insert(chatMessages).values({
       userId: session.user.id,
@@ -106,7 +146,7 @@ Be concise, direct, and strategic. Use plain language. When suggesting goals, sp
       content: reply,
     });
 
-    return NextResponse.json({ reply });
+    return NextResponse.json({ reply, createdGoals });
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : "Unknown error";
     return NextResponse.json({ error: errMsg }, { status: 500 });

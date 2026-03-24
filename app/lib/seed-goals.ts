@@ -23,6 +23,8 @@ function goal(
     reasoning: opts.reasoning || "",
     pinned: opts.pinned || false,
     order: order++,
+    approved: true,
+    proposedBy: null,
     createdAt: now,
     updatedAt: now,
   };

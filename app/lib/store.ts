@@ -15,9 +15,13 @@ export interface Goal {
   reasoning: string;
   pinned: boolean;
   order: number;
+  approved: boolean;
+  proposedBy: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+export const MASTER_EMAIL = "bercan.kilic@micro-agi.com";
 
 export interface ChatMessage {
   id: string;

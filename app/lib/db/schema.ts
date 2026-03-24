@@ -76,6 +76,8 @@ export const goals = pgTable("goals", {
   reasoning: text("reasoning").default(""),
   pinned: boolean("pinned").default(false),
   order: integer("order").default(0),
+  approved: boolean("approved").default(true),
+  proposedBy: text("proposedBy"),
   createdAt: timestamp("createdAt", { mode: "date" }).defaultNow(),
   updatedAt: timestamp("updatedAt", { mode: "date" }).defaultNow(),
 });

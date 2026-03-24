@@ -9,6 +9,9 @@ interface Props {
   onDelete: (id: string) => void;
   childCount: number;
   showPin?: boolean;
+  isMaster?: boolean;
+  onApprove?: (id: string) => void;
+  onReject?: (id: string) => void;
   onDragStart?: (e: React.DragEvent, id: string) => void;
   onDragOver?: (e: React.DragEvent) => void;
   onDrop?: (e: React.DragEvent, id: string) => void;
@@ -22,6 +25,9 @@ export default function GoalCard({
   onDelete,
   childCount,
   showPin = false,
+  isMaster = false,
+  onApprove,
+  onReject,
   onDragStart,
   onDragOver,
   onDrop,
@@ -99,7 +105,9 @@ export default function GoalCard({
   return (
     <div
       className={`group border rounded-lg p-5 transition-all cursor-grab active:cursor-grabbing ${
-        goal.pinned
+        !goal.approved
+          ? "border-yellow-400 bg-yellow-50"
+          : goal.pinned
           ? "border-black bg-neutral-50"
           : "border-neutral-200 hover:border-neutral-400"
       }`}
@@ -129,7 +137,12 @@ export default function GoalCard({
               <span className={`text-[10px] font-mono uppercase ${statusCfg.color}`}>
                 {statusCfg.label}
               </span>
-              {goal.pinned && (
+              {!goal.approved && (
+                <span className="text-[10px] font-mono text-yellow-600 bg-yellow-100 px-1.5 py-0.5 rounded">
+                  PENDING APPROVAL
+                </span>
+              )}
+              {goal.pinned && goal.approved && (
                 <span className="text-[10px] font-mono text-black">HIGHLIGHTED</span>
               )}
               {childCount > 0 && (
@@ -147,6 +160,25 @@ export default function GoalCard({
             )}
             {goal.owner && (
               <p className="text-[10px] font-mono text-neutral-400 mt-2">Owner: {goal.owner}</p>
+            )}
+            {goal.proposedBy && (
+              <p className="text-[10px] font-mono text-yellow-600 mt-1">Proposed by: {goal.proposedBy}</p>
+            )}
+            {!goal.approved && isMaster && (
+              <div className="flex gap-2 mt-3">
+                <button
+                  onClick={() => onApprove?.(goal.id)}
+                  className="text-[10px] font-mono px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
+                >
+                  Approve
+                </button>
+                <button
+                  onClick={() => onReject?.(goal.id)}
+                  className="text-[10px] font-mono px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+                >
+                  Reject
+                </button>
+              </div>
             )}
           </div>
         </div>

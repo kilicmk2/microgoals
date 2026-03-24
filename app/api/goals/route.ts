@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/app/lib/auth";
 import { getDb } from "@/app/lib/db";
 import { goals } from "@/app/lib/db/schema";
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, or, asc } from "drizzle-orm";
+import { MASTER_EMAIL } from "@/app/lib/store";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -11,19 +12,23 @@ export async function GET(req: NextRequest) {
   }
 
   const category = req.nextUrl.searchParams.get("category") || "company";
-  const horizon = req.nextUrl.searchParams.get("horizon");
+  const isMaster = session.user.email === MASTER_EMAIL;
 
   const conditions = [];
 
   if (category === "company") {
     conditions.push(eq(goals.category, "company"));
+    if (!isMaster) {
+      conditions.push(
+        or(
+          eq(goals.approved, true),
+          eq(goals.proposedBy, session.user.email ?? "")
+        )!
+      );
+    }
   } else {
     conditions.push(eq(goals.category, "personal"));
     conditions.push(eq(goals.userId, session.user.id));
-  }
-
-  if (horizon) {
-    conditions.push(eq(goals.horizon, horizon));
   }
 
   const result = await getDb()
@@ -42,6 +47,8 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
+  const isMaster = session.user.email === MASTER_EMAIL;
+  const needsApproval = body.category === "company" && !isMaster;
 
   const [created] = await getDb()
     .insert(goals)
@@ -57,6 +64,8 @@ export async function POST(req: NextRequest) {
       reasoning: body.reasoning || "",
       pinned: body.pinned || false,
       order: body.order ?? Date.now(),
+      approved: !needsApproval,
+      proposedBy: needsApproval ? (session.user.email ?? "") : null,
     })
     .returning();
 

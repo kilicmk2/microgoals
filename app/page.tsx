@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { TimeHorizon, GoalCategory, HORIZONS } from "./lib/store";
+import { TimeHorizon, GoalCategory, HORIZONS, MASTER_EMAIL } from "./lib/store";
 import { useGoals, useChatMessages } from "./lib/hooks";
 import HorizonNav from "./components/HorizonNav";
 import GoalCard from "./components/GoalCard";
@@ -16,9 +16,29 @@ export default function Home() {
   const [horizon, setHorizon] = useState<TimeHorizon | null>(null);
   const [category, setCategory] = useState<GoalCategory>("company");
   const [dragId, setDragId] = useState<string | null>(null);
-  const { goals, loaded, addGoal, updateGoal, deleteGoal, reorderGoals } =
+  const { goals, loaded, addGoal, updateGoal, deleteGoal, reorderGoals, refreshGoals } =
     useGoals(category);
   const { messages, sendMessage, clearChat } = useChatMessages();
+
+  const isMaster = session?.user?.email === MASTER_EMAIL;
+
+  const approveGoal = useCallback(async (id: string) => {
+    await fetch("/api/goals/approve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, action: "approve" }),
+    });
+    refreshGoals();
+  }, [refreshGoals]);
+
+  const rejectGoal = useCallback(async (id: string) => {
+    await fetch("/api/goals/approve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, action: "reject" }),
+    });
+    refreshGoals();
+  }, [refreshGoals]);
 
   const filtered = horizon
     ? goals
@@ -194,6 +214,9 @@ export default function Home() {
                   onDelete={deleteGoal}
                   childCount={goals.filter((g) => g.parentId === goal.id).length}
                   showPin={category === "company"}
+                  isMaster={isMaster}
+                  onApprove={approveGoal}
+                  onReject={rejectGoal}
                   onDragStart={handleDragStart}
                   onDragOver={handleDragOver}
                   onDrop={handleDrop}
