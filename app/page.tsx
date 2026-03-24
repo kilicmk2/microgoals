@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useSession, signOut } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { TimeHorizon, GoalCategory, HORIZONS } from "./lib/store";
 import { useGoals, useChatMessages } from "./lib/hooks";
 import HorizonNav from "./components/HorizonNav";
@@ -10,7 +11,8 @@ import AddGoal from "./components/AddGoal";
 import ChatBubble from "./components/ChatBubble";
 
 export default function Home() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
+  const router = useRouter();
   const [horizon, setHorizon] = useState<TimeHorizon | null>(null);
   const [category, setCategory] = useState<GoalCategory>("company");
   const [dragId, setDragId] = useState<string | null>(null);
@@ -83,7 +85,13 @@ export default function Home() {
     [dragId, reorderGoals]
   );
 
-  if (!loaded) {
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      router.push("/login");
+    }
+  }, [status, router]);
+
+  if (status === "loading" || status === "unauthenticated" || !loaded) {
     return (
       <div className="h-full flex items-center justify-center">
         <span className="text-xs font-mono text-neutral-400">Loading...</span>
