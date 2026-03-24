@@ -65,7 +65,7 @@ export const verificationTokens = pgTable(
 
 export const goals = pgTable("goals", {
   id: uuid("id").defaultRandom().primaryKey(),
-  userId: text("userId").references(() => users.id, { onDelete: "cascade" }),
+  userId: text("userId"),
   title: text("title").notNull(),
   description: text("description").default(""),
   status: text("status").default("not_started").notNull(),
@@ -82,9 +82,7 @@ export const goals = pgTable("goals", {
 
 export const chatMessages = pgTable("chat_messages", {
   id: uuid("id").defaultRandom().primaryKey(),
-  userId: text("userId")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
+  userId: text("userId").notNull(),
   role: text("role").notNull(),
   content: text("content").notNull(),
   timestamp: timestamp("timestamp", { mode: "date" }).defaultNow(),
