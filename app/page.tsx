@@ -1,13 +1,12 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { TimeHorizon, GoalCategory, HORIZONS, Goal } from "./lib/store";
+import { TimeHorizon, GoalCategory, HORIZONS } from "./lib/store";
 import { useGoals, useChatMessages } from "./lib/hooks";
 import HorizonNav from "./components/HorizonNav";
 import GoalCard from "./components/GoalCard";
 import AddGoal from "./components/AddGoal";
 import ChatBubble from "./components/ChatBubble";
-import { getSeedGoals } from "./lib/seed-goals";
 
 export default function Home() {
   const [horizon, setHorizon] = useState<TimeHorizon | null>(null);

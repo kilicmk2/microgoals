@@ -1,78 +1,103 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback, useSyncExternalStore } from "react";
 import { Goal, loadGoals, saveGoals, ChatMessage, loadChat, saveChat } from "./store";
 import { getSeedGoals } from "./seed-goals";
 
-export function useGoals() {
-  const [goals, setGoals] = useState<Goal[]>([]);
-  const [loaded, setLoaded] = useState(false);
+let goalsCache: Goal[] | null = null;
+let chatCache: ChatMessage[] | null = null;
 
-  useEffect(() => {
+function getGoalsSnapshot(): Goal[] {
+  if (goalsCache === null) {
+    if (typeof window === "undefined") return [];
     const existing = loadGoals();
     if (existing.length > 0) {
-      setGoals(existing);
+      goalsCache = existing;
     } else {
       const seed = getSeedGoals();
-      setGoals(seed);
       saveGoals(seed);
+      goalsCache = seed;
     }
-    setLoaded(true);
-  }, []);
+  }
+  return goalsCache;
+}
+
+function getChatSnapshot(): ChatMessage[] {
+  if (chatCache === null) {
+    if (typeof window === "undefined") return [];
+    chatCache = loadChat();
+  }
+  return chatCache;
+}
+
+const emptyGoals: Goal[] = [];
+const emptyChat: ChatMessage[] = [];
+
+export function useGoals() {
+  const goals = useSyncExternalStore(
+    () => () => {},
+    getGoalsSnapshot,
+    () => emptyGoals
+  );
+  const [, forceUpdate] = useState(0);
 
   const persist = useCallback((next: Goal[]) => {
-    setGoals(next);
+    goalsCache = next;
     saveGoals(next);
+    forceUpdate((n) => n + 1);
   }, []);
 
   const addGoal = useCallback(
     (goal: Goal) => {
-      persist([...goals, goal]);
+      persist([...getGoalsSnapshot(), goal]);
     },
-    [goals, persist]
+    [persist]
   );
 
   const updateGoal = useCallback(
     (id: string, updates: Partial<Goal>) => {
       persist(
-        goals.map((g) =>
+        getGoalsSnapshot().map((g) =>
           g.id === id ? { ...g, ...updates, updatedAt: new Date().toISOString() } : g
         )
       );
     },
-    [goals, persist]
+    [persist]
   );
 
   const deleteGoal = useCallback(
     (id: string) => {
-      persist(goals.filter((g) => g.id !== id));
+      persist(getGoalsSnapshot().filter((g) => g.id !== id));
     },
-    [goals, persist]
+    [persist]
   );
 
-  return { goals, loaded, addGoal, updateGoal, deleteGoal, setGoals: persist };
+  return { goals, loaded: true, addGoal, updateGoal, deleteGoal, setGoals: persist };
 }
 
 export function useChatMessages() {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-
-  useEffect(() => {
-    setMessages(loadChat());
-  }, []);
+  const messages = useSyncExternalStore(
+    () => () => {},
+    getChatSnapshot,
+    () => emptyChat
+  );
+  const [, forceUpdate] = useState(0);
 
   const addMessage = useCallback(
     (msg: ChatMessage) => {
-      const next = [...messages, msg];
-      setMessages(next);
+      const next = [...getChatSnapshot(), msg];
+      chatCache = next;
       saveChat(next);
+      forceUpdate((n) => n + 1);
     },
-    [messages]
+    []
   );
 
   const clearChat = useCallback(() => {
-    setMessages([]);
+    chatCache = [];
     saveChat([]);
+    forceUpdate((n) => n + 1);
   }, []);
 
-  return { messages, addMessage, setMessages, clearChat };
+  return { messages, addMessage, setMessages: () => {}, clearChat };
 }
