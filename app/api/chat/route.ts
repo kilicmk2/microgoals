@@ -1,16 +1,45 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/app/lib/auth";
+import { getDb } from "@/app/lib/db";
+import { chatMessages } from "@/app/lib/db/schema";
+import { goals } from "@/app/lib/db/schema";
+import { eq, or, and } from "drizzle-orm";
 
 export async function POST(req: NextRequest) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return NextResponse.json({ error: "Gemini API key not configured" }, { status: 500 });
+  }
+
   try {
-    const { message, goals, apiKey } = await req.json();
+    const { message } = await req.json();
 
-    if (!apiKey) {
-      return NextResponse.json({ error: "Gemini API key is required" }, { status: 400 });
-    }
+    // Save user message
+    await getDb().insert(chatMessages).values({
+      userId: session.user.id,
+      role: "user",
+      content: message,
+    });
 
-    const goalsContext = goals
+    // Get all goals for context
+    const allGoals = await getDb()
+      .select()
+      .from(goals)
+      .where(
+        or(
+          eq(goals.category, "company"),
+          and(eq(goals.category, "personal"), eq(goals.userId, session.user.id))
+        )
+      );
+
+    const goalsContext = allGoals
       .map(
-        (g: { title: string; status: string; horizon: string; category: string; description: string; reasoning: string; owner: string }) =>
+        (g) =>
           `[${g.horizon}/${g.category}] "${g.title}" — status: ${g.status}${g.description ? `, desc: ${g.description}` : ""}${g.reasoning ? `, why: ${g.reasoning}` : ""}${g.owner ? `, owner: ${g.owner}` : ""}`
       )
       .join("\n");
@@ -37,27 +66,17 @@ If the user pastes meeting notes, extract actionable goals and suggest which tim
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          system_instruction: {
-            parts: [{ text: systemPrompt }],
-          },
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: message }],
-            },
-          ],
-          generationConfig: {
-            maxOutputTokens: 1024,
-            temperature: 0.7,
-          },
+          system_instruction: { parts: [{ text: systemPrompt }] },
+          contents: [{ role: "user", parts: [{ text: message }] }],
+          generationConfig: { maxOutputTokens: 1024, temperature: 0.7 },
         }),
       }
     );
 
     if (!response.ok) {
-      const err = await response.text();
+      const errText = await response.text();
       return NextResponse.json(
-        { error: `Gemini API error: ${response.status} — ${err}` },
+        { error: `Gemini API error: ${response.status} — ${errText}` },
         { status: response.status }
       );
     }
@@ -65,6 +84,13 @@ If the user pastes meeting notes, extract actionable goals and suggest which tim
     const data = await response.json();
     const reply =
       data.candidates?.[0]?.content?.parts?.[0]?.text || "No response from Gemini";
+
+    // Save assistant message
+    await getDb().insert(chatMessages).values({
+      userId: session.user.id,
+      role: "assistant",
+      content: reply,
+    });
 
     return NextResponse.json({ reply });
   } catch (e) {

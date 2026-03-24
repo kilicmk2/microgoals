@@ -6,7 +6,7 @@ import { TimeHorizon, GoalCategory, createGoal, Goal } from "../lib/store";
 interface Props {
   horizon: TimeHorizon;
   category: GoalCategory;
-  onAdd: (goal: Goal) => void;
+  onAdd: (goal: Partial<Goal> & { title: string; horizon: string; category: string }) => void;
 }
 
 export default function AddGoal({ horizon, category, onAdd }: Props) {

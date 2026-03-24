@@ -12,6 +12,7 @@ function goal(
 ): Goal {
   return {
     id: uuidv4(),
+    userId: null,
     title,
     description: opts.description || "",
     status: opts.status || "not_started",

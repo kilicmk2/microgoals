@@ -1,103 +1,99 @@
 "use client";
 
-import { useState, useCallback, useSyncExternalStore } from "react";
-import { Goal, loadGoals, saveGoals, ChatMessage, loadChat, saveChat } from "./store";
-import { getSeedGoals } from "./seed-goals";
+import { useCallback, useMemo } from "react";
+import useSWR from "swr";
+import type { Goal, GoalCategory, ChatMessage } from "./store";
 
-let goalsCache: Goal[] | null = null;
-let chatCache: ChatMessage[] | null = null;
+const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
-function getGoalsSnapshot(): Goal[] {
-  if (goalsCache === null) {
-    if (typeof window === "undefined") return [];
-    const existing = loadGoals();
-    if (existing.length > 0) {
-      goalsCache = existing;
-    } else {
-      const seed = getSeedGoals();
-      saveGoals(seed);
-      goalsCache = seed;
-    }
-  }
-  return goalsCache;
-}
-
-function getChatSnapshot(): ChatMessage[] {
-  if (chatCache === null) {
-    if (typeof window === "undefined") return [];
-    chatCache = loadChat();
-  }
-  return chatCache;
-}
-
-const emptyGoals: Goal[] = [];
-const emptyChat: ChatMessage[] = [];
-
-export function useGoals() {
-  const goals = useSyncExternalStore(
-    () => () => {},
-    getGoalsSnapshot,
-    () => emptyGoals
+export function useGoals(category: GoalCategory) {
+  const { data, error, isLoading, mutate } = useSWR<Goal[]>(
+    `/api/goals?category=${category}`,
+    fetcher
   );
-  const [, forceUpdate] = useState(0);
 
-  const persist = useCallback((next: Goal[]) => {
-    goalsCache = next;
-    saveGoals(next);
-    forceUpdate((n) => n + 1);
-  }, []);
+  const goals = data ?? [];
 
   const addGoal = useCallback(
-    (goal: Goal) => {
-      persist([...getGoalsSnapshot(), goal]);
+    async (goal: Partial<Goal> & { title: string; horizon: string; category: string }) => {
+      const res = await fetch("/api/goals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(goal),
+      });
+      if (res.ok) mutate();
     },
-    [persist]
+    [mutate]
   );
 
   const updateGoal = useCallback(
-    (id: string, updates: Partial<Goal>) => {
-      persist(
-        getGoalsSnapshot().map((g) =>
-          g.id === id ? { ...g, ...updates, updatedAt: new Date().toISOString() } : g
-        )
-      );
+    async (id: string, updates: Partial<Goal>) => {
+      const res = await fetch(`/api/goals/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+      if (res.ok) mutate();
     },
-    [persist]
+    [mutate]
   );
 
   const deleteGoal = useCallback(
-    (id: string) => {
-      persist(getGoalsSnapshot().filter((g) => g.id !== id));
+    async (id: string) => {
+      await fetch(`/api/goals/${id}`, { method: "DELETE" });
+      mutate();
     },
-    [persist]
+    [mutate]
   );
 
-  return { goals, loaded: true, addGoal, updateGoal, deleteGoal, setGoals: persist };
+  const reorderGoals = useCallback(
+    async (updates: { id: string; order: number; horizon?: string }[]) => {
+      await fetch("/api/goals/reorder", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+      mutate();
+    },
+    [mutate]
+  );
+
+  return {
+    goals,
+    loaded: !isLoading,
+    error,
+    addGoal,
+    updateGoal,
+    deleteGoal,
+    reorderGoals,
+    refreshGoals: mutate,
+  };
 }
 
 export function useChatMessages() {
-  const messages = useSyncExternalStore(
-    () => () => {},
-    getChatSnapshot,
-    () => emptyChat
-  );
-  const [, forceUpdate] = useState(0);
+  const { data, mutate } = useSWR<ChatMessage[]>("/api/chat/history", fetcher);
 
-  const addMessage = useCallback(
-    (msg: ChatMessage) => {
-      const next = [...getChatSnapshot(), msg];
-      chatCache = next;
-      saveChat(next);
-      forceUpdate((n) => n + 1);
+  const messages = useMemo(() => data ?? [], [data]);
+
+  const sendMessage = useCallback(
+    async (content: string) => {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: content }),
+      });
+
+      const result = await res.json();
+      mutate(); // Re-fetch from server
+      return result;
     },
-    []
+    [mutate]
   );
 
-  const clearChat = useCallback(() => {
-    chatCache = [];
-    saveChat([]);
-    forceUpdate((n) => n + 1);
-  }, []);
+  const clearChat = useCallback(async () => {
+    await fetch("/api/chat/history", { method: "DELETE" });
+    mutate([]);
+  }, [mutate]);
 
-  return { messages, addMessage, setMessages: () => {}, clearChat };
+  return { messages, sendMessage, clearChat };
 }
