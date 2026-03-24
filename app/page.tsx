@@ -9,6 +9,7 @@ import HorizonNav from "./components/HorizonNav";
 import GoalCard from "./components/GoalCard";
 import AddGoal from "./components/AddGoal";
 import ChatBubble from "./components/ChatBubble";
+import Logo from "./components/Logo";
 
 export default function Home() {
   const { data: session, status } = useSession();
@@ -124,7 +125,7 @@ export default function Home() {
       {/* Top bar */}
       <nav className="w-full border-b border-neutral-100">
         <div className="max-w-6xl mx-auto px-8 flex items-center justify-between h-14">
-          <h1 className="text-base font-semibold tracking-tight">Microgoals</h1>
+          <h1 className="text-base tracking-tight"><Logo /></h1>
           <div className="flex items-center gap-8">
             <button
               onClick={() => handleCategoryChange("company")}

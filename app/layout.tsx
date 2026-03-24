@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Microgoals",
+  title: "microgoals",
   description: "Company goal tracking and alignment",
   icons: {
     icon: "/icon.svg",

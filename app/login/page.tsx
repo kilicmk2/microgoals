@@ -1,6 +1,7 @@
 "use client";
 
 import { useSession, signIn } from "next-auth/react";
+import Logo from "@/app/components/Logo";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
@@ -25,7 +26,7 @@ export default function LoginPage() {
   return (
     <div className="h-full flex items-center justify-center bg-white">
       <div className="text-center">
-        <h1 className="text-2xl font-semibold tracking-tight mb-2">Microgoals</h1>
+        <h1 className="text-2xl tracking-tight mb-2"><Logo /></h1>
         <p className="text-xs font-mono text-neutral-400 mb-8">
           Direction. Clarity. Alignment.
         </p>
