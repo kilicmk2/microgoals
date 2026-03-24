@@ -6,9 +6,16 @@ import type { Goal, GoalCategory } from "./store";
 
 const fetcher = async (url: string) => {
   const res = await fetch(url);
-  if (!res.ok) return [];
+  if (!res.ok) {
+    console.error(`API ${url} returned ${res.status}`);
+    return [];
+  }
   const data = await res.json();
-  return Array.isArray(data) ? data : [];
+  if (!Array.isArray(data)) {
+    console.error(`API ${url} returned non-array:`, data);
+    return [];
+  }
+  return data;
 };
 
 export function useGoals(category: GoalCategory) {
@@ -21,52 +28,72 @@ export function useGoals(category: GoalCategory) {
 
   const addGoal = useCallback(
     async (goal: Partial<Goal> & { title: string; horizon: string; category: string }) => {
-      const res = await fetch("/api/goals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(goal),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        console.error("Failed to add goal:", err);
+      try {
+        const res = await fetch("/api/goals", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(goal),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert(`Failed to add goal: ${JSON.stringify(err)}`);
+        }
+      } catch (e) {
+        alert(`Network error adding goal: ${e}`);
       }
-      mutate();
+      await mutate(undefined, { revalidate: true });
     },
     [mutate]
   );
 
   const updateGoal = useCallback(
     async (id: string, updates: Partial<Goal>) => {
-      const res = await fetch(`/api/goals/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        console.error("Failed to update goal:", err);
+      try {
+        const res = await fetch(`/api/goals/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updates),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert(`Failed to update goal: ${JSON.stringify(err)}`);
+        }
+      } catch (e) {
+        alert(`Network error updating goal: ${e}`);
       }
-      mutate();
+      await mutate(undefined, { revalidate: true });
     },
     [mutate]
   );
 
   const deleteGoal = useCallback(
     async (id: string) => {
-      await fetch(`/api/goals/${id}`, { method: "DELETE" });
-      mutate();
+      try {
+        await fetch(`/api/goals/${id}`, { method: "DELETE" });
+      } catch (e) {
+        alert(`Network error deleting goal: ${e}`);
+      }
+      await mutate(undefined, { revalidate: true });
     },
     [mutate]
   );
 
   const reorderGoals = useCallback(
     async (updates: { id: string; order: number; horizon?: string }[]) => {
-      await fetch("/api/goals/reorder", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-      });
-      mutate();
+      try {
+        const res = await fetch("/api/goals/reorder", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updates),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert(`Failed to reorder: ${JSON.stringify(err)}`);
+        }
+      } catch (e) {
+        alert(`Network error reordering: ${e}`);
+      }
+      await mutate(undefined, { revalidate: true });
     },
     [mutate]
   );
