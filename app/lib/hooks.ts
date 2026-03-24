@@ -4,7 +4,12 @@ import { useCallback, useMemo } from "react";
 import useSWR from "swr";
 import type { Goal, GoalCategory, ChatMessage } from "./store";
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+const fetcher = async (url: string) => {
+  const res = await fetch(url);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+};
 
 export function useGoals(category: GoalCategory) {
   const { data, error, isLoading, mutate } = useSWR<Goal[]>(

@@ -32,14 +32,14 @@ export default function HorizonNav({
   const [dropTarget, setDropTarget] = useState<TimeHorizon | null>(null);
 
   function getPreviewTitles(horizon: TimeHorizon): string[] {
-    return goals
+    return (goals || [])
       .filter((g) => g.horizon === horizon && g.category === category && g.pinned)
       .slice(0, 3)
       .map((g) => g.title.length > 30 ? g.title.substring(0, 28) + "..." : g.title);
   }
 
   function getGoalCount(horizon: TimeHorizon): number {
-    return goals.filter((g) => g.horizon === horizon && g.category === category).length;
+    return (goals || []).filter((g) => g.horizon === horizon && g.category === category).length;
   }
 
   return (
