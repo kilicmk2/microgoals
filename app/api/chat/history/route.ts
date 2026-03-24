@@ -5,27 +5,37 @@ import { chatMessages } from "@/app/lib/db/schema";
 import { eq, asc } from "drizzle-orm";
 
 export async function GET() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json([], { status: 200 });
+    }
+
+    const userId = session.user.id || session.user.email || "";
+    const messages = await getDb()
+      .select()
+      .from(chatMessages)
+      .where(eq(chatMessages.userId, userId))
+      .orderBy(asc(chatMessages.timestamp));
+
+    return NextResponse.json(messages);
+  } catch (e) {
+    return NextResponse.json([], { status: 200 });
   }
-
-  const messages = await getDb()
-    .select()
-    .from(chatMessages)
-    .where(eq(chatMessages.userId, session.user.id))
-    .orderBy(asc(chatMessages.timestamp));
-
-  return NextResponse.json(messages);
 }
 
 export async function DELETE() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const userId = session.user.id || session.user.email || "";
+    await getDb().delete(chatMessages).where(eq(chatMessages.userId, userId));
+
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 500 });
   }
-
-  await getDb().delete(chatMessages).where(eq(chatMessages.userId, session.user.id));
-
-  return NextResponse.json({ ok: true });
 }

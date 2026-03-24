@@ -8,39 +8,55 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id } = await params;
+    const body = await req.json();
+
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+    if (body.title !== undefined) updates.title = body.title;
+    if (body.description !== undefined) updates.description = body.description;
+    if (body.status !== undefined) updates.status = body.status;
+    if (body.horizon !== undefined) updates.horizon = body.horizon;
+    if (body.owner !== undefined) updates.owner = body.owner;
+    if (body.reasoning !== undefined) updates.reasoning = body.reasoning;
+    if (body.pinned !== undefined) updates.pinned = body.pinned;
+    if (body.order !== undefined) updates.order = body.order;
+
+    const [updated] = await getDb()
+      .update(goals)
+      .set(updates)
+      .where(eq(goals.id, id))
+      .returning();
+
+    if (!updated) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    return NextResponse.json(updated);
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 500 });
   }
-
-  const { id } = await params;
-  const body = await req.json();
-
-  const [updated] = await getDb()
-    .update(goals)
-    .set({ ...body, updatedAt: new Date() })
-    .where(eq(goals.id, id))
-    .returning();
-
-  if (!updated) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-
-  return NextResponse.json(updated);
 }
 
 export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id } = await params;
+    await getDb().delete(goals).where(eq(goals.id, id));
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 500 });
   }
-
-  const { id } = await params;
-
-  await getDb().delete(goals).where(eq(goals.id, id));
-
-  return NextResponse.json({ ok: true });
 }

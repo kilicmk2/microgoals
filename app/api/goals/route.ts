@@ -6,68 +6,78 @@ import { eq, and, or, asc } from "drizzle-orm";
 import { MASTER_EMAIL } from "@/app/lib/store";
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const category = req.nextUrl.searchParams.get("category") || "company";
-  const isMaster = session.user.email === MASTER_EMAIL;
-
-  const conditions = [];
-
-  if (category === "company") {
-    conditions.push(eq(goals.category, "company"));
-    if (!isMaster) {
-      conditions.push(
-        or(
-          eq(goals.approved, true),
-          eq(goals.proposedBy, session.user.email ?? "")
-        )!
-      );
+  try {
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-  } else {
-    conditions.push(eq(goals.category, "personal"));
-    conditions.push(eq(goals.userId, session.user.id));
+
+    const userId = session.user.id || session.user.email || "";
+    const category = req.nextUrl.searchParams.get("category") || "company";
+    const isMaster = session.user.email === MASTER_EMAIL;
+
+    const conditions = [];
+
+    if (category === "company") {
+      conditions.push(eq(goals.category, "company"));
+      if (!isMaster) {
+        conditions.push(
+          or(
+            eq(goals.approved, true),
+            eq(goals.proposedBy, session.user.email ?? "")
+          )!
+        );
+      }
+    } else {
+      conditions.push(eq(goals.category, "personal"));
+      conditions.push(eq(goals.userId, userId));
+    }
+
+    const result = await getDb()
+      .select()
+      .from(goals)
+      .where(and(...conditions))
+      .orderBy(asc(goals.order));
+
+    return NextResponse.json(result);
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 500 });
   }
-
-  const result = await getDb()
-    .select()
-    .from(goals)
-    .where(and(...conditions))
-    .orderBy(asc(goals.order));
-
-  return NextResponse.json(result);
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const userId = session.user.id || session.user.email || "";
+    const body = await req.json();
+    const isMaster = session.user.email === MASTER_EMAIL;
+    const needsApproval = body.category === "company" && !isMaster;
+
+    const [created] = await getDb()
+      .insert(goals)
+      .values({
+        userId: body.category === "personal" ? userId : null,
+        title: body.title,
+        description: body.description || "",
+        status: body.status || "not_started",
+        horizon: body.horizon,
+        category: body.category,
+        owner: body.owner || "",
+        parentId: body.parentId || null,
+        reasoning: body.reasoning || "",
+        pinned: body.pinned || false,
+        order: body.order ?? Date.now(),
+        approved: !needsApproval,
+        proposedBy: needsApproval ? (session.user.email ?? "") : null,
+      })
+      .returning();
+
+    return NextResponse.json(created, { status: 201 });
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 500 });
   }
-
-  const body = await req.json();
-  const isMaster = session.user.email === MASTER_EMAIL;
-  const needsApproval = body.category === "company" && !isMaster;
-
-  const [created] = await getDb()
-    .insert(goals)
-    .values({
-      userId: body.category === "personal" ? session.user.id : null,
-      title: body.title,
-      description: body.description || "",
-      status: body.status || "not_started",
-      horizon: body.horizon,
-      category: body.category,
-      owner: body.owner || "",
-      parentId: body.parentId || null,
-      reasoning: body.reasoning || "",
-      pinned: body.pinned || false,
-      order: body.order ?? Date.now(),
-      approved: !needsApproval,
-      proposedBy: needsApproval ? (session.user.email ?? "") : null,
-    })
-    .returning();
-
-  return NextResponse.json(created, { status: 201 });
 }

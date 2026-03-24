@@ -6,10 +6,11 @@ import { eq, or, and, asc } from "drizzle-orm";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session?.user?.id) {
+  if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const userId = session.user.id || session.user.email || "";
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return NextResponse.json({ error: "Gemini API key not configured on server" }, { status: 500 });
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest) {
 
     // Save user message
     await db.insert(chatMessages).values({
-      userId: session.user.id,
+      userId: userId,
       role: "user",
       content: message,
     });
@@ -30,7 +31,7 @@ export async function POST(req: NextRequest) {
     const history = await db
       .select()
       .from(chatMessages)
-      .where(eq(chatMessages.userId, session.user.id))
+      .where(eq(chatMessages.userId, userId))
       .orderBy(asc(chatMessages.timestamp));
 
     // Get all goals for context
@@ -40,7 +41,7 @@ export async function POST(req: NextRequest) {
       .where(
         or(
           eq(goals.category, "company"),
-          and(eq(goals.category, "personal"), eq(goals.userId, session.user.id))
+          and(eq(goals.category, "personal"), eq(goals.userId, userId))
         )
       );
 
@@ -120,7 +121,7 @@ Be concise, direct, and strategic. Reference specific existing goals by name whe
         const needsApproval = goalData.category === "company" && !isMaster;
 
         await db.insert(goals).values({
-          userId: goalData.category === "personal" ? session.user.id : null,
+          userId: goalData.category === "personal" ? userId : null,
           title: goalData.title,
           description: goalData.description || "",
           status: goalData.status || "not_started",
@@ -147,7 +148,7 @@ Be concise, direct, and strategic. Reference specific existing goals by name whe
 
     // Save cleaned assistant message
     await db.insert(chatMessages).values({
-      userId: session.user.id,
+      userId: userId,
       role: "assistant",
       content: cleanReply,
     });

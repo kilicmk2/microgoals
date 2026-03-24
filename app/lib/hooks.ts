@@ -21,11 +21,15 @@ export function useGoals(category: GoalCategory) {
 
   const addGoal = useCallback(
     async (goal: Partial<Goal> & { title: string; horizon: string; category: string }) => {
-      await fetch("/api/goals", {
+      const res = await fetch("/api/goals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(goal),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.error("Failed to add goal:", err);
+      }
       mutate();
     },
     [mutate]
@@ -33,11 +37,15 @@ export function useGoals(category: GoalCategory) {
 
   const updateGoal = useCallback(
     async (id: string, updates: Partial<Goal>) => {
-      await fetch(`/api/goals/${id}`, {
+      const res = await fetch(`/api/goals/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.error("Failed to update goal:", err);
+      }
       mutate();
     },
     [mutate]
@@ -88,14 +96,18 @@ export function useChatMessages() {
 
   const sendMessage = useCallback(
     async (content: string): Promise<{ reply?: string; error?: string; createdGoals?: string[] }> => {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: content }),
-      });
-      const result = await res.json();
-      mutate();
-      return result;
+      try {
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: content }),
+        });
+        const result = await res.json();
+        mutate();
+        return result;
+      } catch (e) {
+        return { error: String(e) };
+      }
     },
     [mutate]
   );
