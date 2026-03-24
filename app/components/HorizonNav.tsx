@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   TimeHorizon,
   HORIZONS,
@@ -30,6 +30,7 @@ export default function HorizonNav({
     : HORIZONS;
 
   const [dropTarget, setDropTarget] = useState<TimeHorizon | null>(null);
+  const justDroppedRef = useRef(false);
 
   function getPreviewTitles(horizon: TimeHorizon): string[] {
     return (goals || [])
@@ -42,11 +43,30 @@ export default function HorizonNav({
     return (goals || []).filter((g) => g.horizon === horizon && g.category === category).length;
   }
 
+  function handleClick(h: TimeHorizon) {
+    // Don't navigate if we just dropped a goal
+    if (justDroppedRef.current) {
+      justDroppedRef.current = false;
+      return;
+    }
+    onHorizonChange(h);
+  }
+
+  function handleDrop(e: React.DragEvent, h: TimeHorizon) {
+    e.preventDefault();
+    e.stopPropagation();
+    justDroppedRef.current = true;
+    setDropTarget(null);
+    onDropGoal?.(h);
+    // Reset after a tick so future clicks work
+    setTimeout(() => { justDroppedRef.current = false; }, 300);
+  }
+
   return (
     <div className="w-full py-10 px-6">
       <div className="relative">
         {/* Line */}
-        <div className="absolute left-0 right-0 top-[6px] h-px bg-neutral-200" />
+        <div className="absolute left-0 right-0 top-[24px] h-px bg-neutral-200" />
 
         {/* Dots and labels */}
         <div className="relative flex items-start justify-between">
@@ -57,55 +77,58 @@ export default function HorizonNav({
             const count = getGoalCount(h.key);
 
             return (
-              <button
+              <div
                 key={h.key}
-                onClick={() => onHorizonChange(h.key)}
+                className="flex flex-col items-center w-0 flex-1"
                 onDragOver={(e) => {
                   e.preventDefault();
                   e.dataTransfer.dropEffect = "move";
                   setDropTarget(h.key);
                 }}
                 onDragLeave={() => setDropTarget(null)}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setDropTarget(null);
-                  onDropGoal?.(h.key);
-                }}
-                className="flex flex-col items-center group w-0 flex-1"
+                onDrop={(e) => handleDrop(e, h.key)}
               >
-                {/* Dot */}
+                {/* Large invisible drop zone */}
                 <div
-                  className={`w-3 h-3 rounded-full border-2 transition-all duration-300 shrink-0 ${
-                    isDragOver
-                      ? "bg-blue-500 border-blue-500 scale-150"
-                      : isActive
-                      ? "bg-black border-black scale-125"
-                      : "bg-white border-neutral-300 group-hover:border-neutral-500 group-hover:bg-neutral-100"
+                  className={`w-full flex flex-col items-center cursor-pointer py-3 rounded-lg transition-colors ${
+                    isDragOver ? "bg-blue-50" : ""
                   }`}
-                />
-
-                {/* Label */}
-                <span
-                  className={`text-[11px] font-mono mt-3 transition-all duration-300 whitespace-nowrap ${
-                    isDragOver
-                      ? "text-blue-500 font-semibold"
-                      : isActive
-                      ? "text-black font-semibold"
-                      : "text-neutral-400 group-hover:text-neutral-600"
-                  }`}
+                  onClick={() => handleClick(h.key)}
                 >
-                  {h.label}
-                </span>
+                  {/* Dot */}
+                  <div
+                    className={`w-3 h-3 rounded-full border-2 transition-all duration-300 shrink-0 ${
+                      isDragOver
+                        ? "bg-blue-500 border-blue-500 scale-[2]"
+                        : isActive
+                        ? "bg-black border-black scale-125"
+                        : "bg-white border-neutral-300 hover:border-neutral-500 hover:bg-neutral-100"
+                    }`}
+                  />
 
-                {/* Count */}
-                {count > 0 && (
-                  <span className="text-[9px] font-mono text-neutral-300 mt-0.5">
-                    {count}
+                  {/* Label */}
+                  <span
+                    className={`text-[11px] font-mono mt-3 transition-all duration-300 whitespace-nowrap ${
+                      isDragOver
+                        ? "text-blue-500 font-semibold"
+                        : isActive
+                        ? "text-black font-semibold"
+                        : "text-neutral-400 hover:text-neutral-600"
+                    }`}
+                  >
+                    {h.label}
                   </span>
-                )}
+
+                  {/* Count */}
+                  {count > 0 && (
+                    <span className="text-[9px] font-mono text-neutral-300 mt-0.5">
+                      {count}
+                    </span>
+                  )}
+                </div>
 
                 {/* Preview bubbles */}
-                <div className="flex flex-col items-center gap-1 mt-2 w-full px-1">
+                <div className="flex flex-col items-center gap-1 mt-1 w-full px-1">
                   {previews.map((title, i) => (
                     <span
                       key={i}
@@ -119,7 +142,7 @@ export default function HorizonNav({
                     </span>
                   ))}
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>
