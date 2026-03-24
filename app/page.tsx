@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { TimeHorizon, GoalCategory, HORIZONS, MASTER_EMAIL } from "./lib/store";
@@ -17,6 +17,7 @@ export default function Home() {
   const [horizon, setHorizon] = useState<TimeHorizon | null>(null);
   const [category, setCategory] = useState<GoalCategory>("company");
   const [dragId, setDragId] = useState<string | null>(null);
+  const dragIdRef = useRef<string | null>(null);
   const { goals, loaded, addGoal, updateGoal, deleteGoal, reorderGoals, refreshGoals } =
     useGoals(category);
   const { messages, sendMessage: rawSendMessage, clearChat } = useChatMessages();
@@ -72,6 +73,7 @@ export default function Home() {
 
   const handleDragStart = useCallback((e: React.DragEvent, id: string) => {
     setDragId(id);
+    dragIdRef.current = id;
     e.dataTransfer.effectAllowed = "move";
   }, []);
 
@@ -83,13 +85,14 @@ export default function Home() {
   const handleDrop = useCallback(
     (e: React.DragEvent, targetId: string) => {
       e.preventDefault();
-      if (!dragId || dragId === targetId || !horizon) return;
+      const currentDragId = dragIdRef.current;
+      if (!currentDragId || currentDragId === targetId || !horizon) return;
 
       const currentList = goals
         .filter((g) => g.horizon === horizon)
         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
-      const dragIndex = currentList.findIndex((g) => g.id === dragId);
+      const dragIndex = currentList.findIndex((g) => g.id === currentDragId);
       const targetIndex = currentList.findIndex((g) => g.id === targetId);
       if (dragIndex === -1 || targetIndex === -1) return;
 
@@ -100,18 +103,21 @@ export default function Home() {
       const updates = reordered.map((g, i) => ({ id: g.id, order: i }));
       reorderGoals(updates);
       setDragId(null);
+      dragIdRef.current = null;
     },
-    [dragId, goals, horizon, reorderGoals]
+    [goals, horizon, reorderGoals]
   );
 
   const handleDropOnHorizon = useCallback(
     (targetHorizon: TimeHorizon) => {
-      if (!dragId) return;
-      reorderGoals([{ id: dragId, order: Date.now(), horizon: targetHorizon }]);
+      const currentDragId = dragIdRef.current;
+      if (!currentDragId) return;
+      reorderGoals([{ id: currentDragId, order: Date.now(), horizon: targetHorizon }]);
       setHorizon(targetHorizon);
       setDragId(null);
+      dragIdRef.current = null;
     },
-    [dragId, reorderGoals]
+    [reorderGoals]
   );
 
   useEffect(() => {
