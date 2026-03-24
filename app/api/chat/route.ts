@@ -139,14 +139,20 @@ Be concise, direct, and strategic. Reference specific existing goals by name whe
       }
     }
 
-    // Save assistant message
+    // Clean reply — remove goal blocks from displayed text
+    let cleanReply = reply.replace(/```goal\n[\s\S]*?```/g, "").trim();
+    if (createdGoals.length > 0) {
+      cleanReply += `\n\n✓ Created ${createdGoals.length} goal${createdGoals.length > 1 ? "s" : ""}: ${createdGoals.join(", ")}`;
+    }
+
+    // Save cleaned assistant message
     await db.insert(chatMessages).values({
       userId: session.user.id,
       role: "assistant",
-      content: reply,
+      content: cleanReply,
     });
 
-    return NextResponse.json({ reply, createdGoals });
+    return NextResponse.json({ reply: cleanReply, createdGoals });
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : "Unknown error";
     return NextResponse.json({ error: errMsg }, { status: 500 });
