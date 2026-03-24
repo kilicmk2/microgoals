@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const userId = session.user.id || session.user.email || "";
+    const userId = session.user.email || session.user.id || "";
     const category = req.nextUrl.searchParams.get("category") || "company";
     const isMaster = session.user.email === MASTER_EMAIL;
 
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const userId = session.user.id || session.user.email || "";
+    const userId = session.user.email || session.user.id || "";
     const body = await req.json();
     const isMaster = session.user.email === MASTER_EMAIL;
     const needsApproval = body.category === "company" && !isMaster;

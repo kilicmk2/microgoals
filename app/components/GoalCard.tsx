@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Goal, GoalStatus, STATUS_CONFIG } from "../lib/store";
+import { Goal, GoalStatus, STATUS_CONFIG, HORIZONS, TimeHorizon } from "../lib/store";
 
 interface Props {
   goal: Goal;
@@ -104,35 +104,16 @@ export default function GoalCard({
 
   return (
     <div
-      className={`group border rounded-lg p-5 transition-all cursor-grab active:cursor-grabbing ${
+      className={`group border rounded-lg p-5 transition-all ${
         !goal.approved
           ? "border-yellow-400 bg-yellow-50"
           : goal.pinned
           ? "border-black bg-neutral-50"
           : "border-neutral-200 hover:border-neutral-400"
       }`}
-      draggable
-      onDragStart={(e) => onDragStart?.(e, goal.id)}
-      onDragOver={(e) => {
-        e.preventDefault();
-        onDragOver?.(e);
-      }}
-      onDrop={(e) => onDrop?.(e, goal.id)}
     >
       <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3 flex-1 min-w-0">
-          {/* Drag handle */}
-          <div className="mt-1 text-neutral-300 group-hover:text-neutral-400 shrink-0 select-none">
-            <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor">
-              <circle cx="2" cy="2" r="1.5" />
-              <circle cx="8" cy="2" r="1.5" />
-              <circle cx="2" cy="8" r="1.5" />
-              <circle cx="8" cy="8" r="1.5" />
-              <circle cx="2" cy="14" r="1.5" />
-              <circle cx="8" cy="14" r="1.5" />
-            </svg>
-          </div>
-          <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <span className={`text-[10px] font-mono uppercase ${statusCfg.color}`}>
                 {statusCfg.label}
@@ -180,7 +161,6 @@ export default function GoalCard({
                 </button>
               </div>
             )}
-          </div>
         </div>
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
           <select
@@ -191,6 +171,18 @@ export default function GoalCard({
             {STATUS_OPTIONS.map((s) => (
               <option key={s} value={s}>
                 {STATUS_CONFIG[s].label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={goal.horizon}
+            onChange={(e) => onUpdate(goal.id, { horizon: e.target.value as TimeHorizon })}
+            className="text-[10px] font-mono bg-transparent border border-neutral-200 rounded px-1 py-0.5 outline-none cursor-pointer"
+            title="Move to horizon"
+          >
+            {HORIZONS.map((h) => (
+              <option key={h.key} value={h.key}>
+                {h.label}
               </option>
             ))}
           </select>

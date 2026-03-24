@@ -11,7 +11,7 @@ export async function GET() {
       return NextResponse.json([], { status: 200 });
     }
 
-    const userId = session.user.id || session.user.email || "";
+    const userId = session.user.email || session.user.id || "";
     const messages = await getDb()
       .select()
       .from(chatMessages)
@@ -31,7 +31,7 @@ export async function DELETE() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const userId = session.user.id || session.user.email || "";
+    const userId = session.user.email || session.user.id || "";
     await getDb().delete(chatMessages).where(eq(chatMessages.userId, userId));
 
     return NextResponse.json({ ok: true });
