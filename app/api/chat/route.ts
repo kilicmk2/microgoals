@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/app/lib/auth";
 import { getDb } from "@/app/lib/db";
-import { chatMessages } from "@/app/lib/db/schema";
-import { goals } from "@/app/lib/db/schema";
-import { eq, or, and } from "drizzle-orm";
+import { chatMessages, goals } from "@/app/lib/db/schema";
+import { eq, or, and, asc } from "drizzle-orm";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -13,21 +12,29 @@ export async function POST(req: NextRequest) {
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return NextResponse.json({ error: "Gemini API key not configured" }, { status: 500 });
+    return NextResponse.json({ error: "Gemini API key not configured on server" }, { status: 500 });
   }
 
   try {
     const { message } = await req.json();
+    const db = getDb();
 
     // Save user message
-    await getDb().insert(chatMessages).values({
+    await db.insert(chatMessages).values({
       userId: session.user.id,
       role: "user",
       content: message,
     });
 
+    // Get full conversation history for context
+    const history = await db
+      .select()
+      .from(chatMessages)
+      .where(eq(chatMessages.userId, session.user.id))
+      .orderBy(asc(chatMessages.timestamp));
+
     // Get all goals for context
-    const allGoals = await getDb()
+    const allGoals = await db
       .select()
       .from(goals)
       .where(
@@ -44,31 +51,38 @@ export async function POST(req: NextRequest) {
       )
       .join("\n");
 
-    const systemPrompt = `You are an AI assistant for Microgoals — a company goal-tracking platform. You help the team manage, summarize, and refine their goals.
+    const systemPrompt = `You are an AI assistant for Microgoals — a company goal-tracking platform for Micro-AGI, a robotics data company. You have full context of all company and personal goals. You remember the full conversation history.
+
+User: ${session.user.name} (${session.user.email})
 
 Current goals:
 ${goalsContext || "(No goals set yet)"}
 
 You can:
-1. Summarize goals by time horizon or category
-2. Suggest new goals or improvements
-3. Analyze alignment between short-term and long-term goals
-4. Help extract goals from meeting notes
-5. Provide strategic recommendations
+1. Summarize goals by time horizon (weekly, monthly, 6 month, 1 year, 2 year, 5 year)
+2. Analyze alignment between short-term execution and long-term strategy
+3. Extract actionable goals from meeting notes or transcripts
+4. Suggest priorities, flag blocked items, identify gaps
+5. Help refine goal descriptions and reasoning
+6. Track what changed since last conversation
 
-When suggesting goal changes, describe them clearly. Be concise, direct, and strategic. Use plain language.
+Be concise, direct, and strategic. Use plain language. When suggesting goals, specify which time horizon they belong to. Reference specific existing goals by name when relevant.`;
 
-If the user pastes meeting notes, extract actionable goals and suggest which time horizon they belong to.`;
+    // Build conversation for Gemini (full history)
+    const contents = history.map((msg) => ({
+      role: msg.role === "user" ? "user" : "model",
+      parts: [{ text: msg.content }],
+    }));
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           system_instruction: { parts: [{ text: systemPrompt }] },
-          contents: [{ role: "user", parts: [{ text: message }] }],
-          generationConfig: { maxOutputTokens: 1024, temperature: 0.7 },
+          contents,
+          generationConfig: { maxOutputTokens: 2048, temperature: 0.7 },
         }),
       }
     );
@@ -76,8 +90,8 @@ If the user pastes meeting notes, extract actionable goals and suggest which tim
     if (!response.ok) {
       const errText = await response.text();
       return NextResponse.json(
-        { error: `Gemini API error: ${response.status} — ${errText}` },
-        { status: response.status }
+        { error: `Gemini error ${response.status}: ${errText.substring(0, 200)}` },
+        { status: 500 }
       );
     }
 
@@ -86,7 +100,7 @@ If the user pastes meeting notes, extract actionable goals and suggest which tim
       data.candidates?.[0]?.content?.parts?.[0]?.text || "No response from Gemini";
 
     // Save assistant message
-    await getDb().insert(chatMessages).values({
+    await db.insert(chatMessages).values({
       userId: session.user.id,
       role: "assistant",
       content: reply,

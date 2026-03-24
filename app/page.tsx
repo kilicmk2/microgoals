@@ -215,7 +215,7 @@ export default function Home() {
 
       {/* Chat bubble */}
       <ChatBubble
-        messages={messages}
+        initialMessages={messages}
         onSendMessage={sendMessage}
         onClearChat={clearChat}
       />

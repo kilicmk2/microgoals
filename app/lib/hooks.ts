@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo } from "react";
 import useSWR from "swr";
-import type { Goal, GoalCategory, ChatMessage } from "./store";
+import type { Goal, GoalCategory } from "./store";
 
 const fetcher = async (url: string) => {
   const res = await fetch(url);
@@ -21,24 +21,24 @@ export function useGoals(category: GoalCategory) {
 
   const addGoal = useCallback(
     async (goal: Partial<Goal> & { title: string; horizon: string; category: string }) => {
-      const res = await fetch("/api/goals", {
+      await fetch("/api/goals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(goal),
       });
-      if (res.ok) mutate();
+      mutate();
     },
     [mutate]
   );
 
   const updateGoal = useCallback(
     async (id: string, updates: Partial<Goal>) => {
-      const res = await fetch(`/api/goals/${id}`, {
+      await fetch(`/api/goals/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
       });
-      if (res.ok) mutate();
+      mutate();
     },
     [mutate]
   );
@@ -75,21 +75,26 @@ export function useGoals(category: GoalCategory) {
   };
 }
 
+interface ChatMsg {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+}
+
 export function useChatMessages() {
-  const { data, mutate } = useSWR<ChatMessage[]>("/api/chat/history", fetcher);
+  const { data, mutate } = useSWR<ChatMsg[]>("/api/chat/history", fetcher);
 
   const messages = useMemo(() => data ?? [], [data]);
 
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (content: string): Promise<{ reply?: string; error?: string }> => {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: content }),
       });
-
       const result = await res.json();
-      mutate(); // Re-fetch from server
+      mutate();
       return result;
     },
     [mutate]
