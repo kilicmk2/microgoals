@@ -19,9 +19,17 @@ export default function Home() {
   const [dragId, setDragId] = useState<string | null>(null);
   const { goals, loaded, addGoal, updateGoal, deleteGoal, reorderGoals, refreshGoals } =
     useGoals(category);
-  const { messages, sendMessage, clearChat } = useChatMessages();
+  const { messages, sendMessage: rawSendMessage, clearChat } = useChatMessages();
 
   const isMaster = session?.user?.email === MASTER_EMAIL;
+
+  const sendMessage = useCallback(async (content: string) => {
+    const result = await rawSendMessage(content);
+    if ((result.createdGoals?.length ?? 0) > 0) {
+      refreshGoals();
+    }
+    return result;
+  }, [rawSendMessage, refreshGoals]);
 
   const approveGoal = useCallback(async (id: string) => {
     await fetch("/api/goals/approve", {

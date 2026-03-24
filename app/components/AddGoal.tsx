@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSession } from "next-auth/react";
 import { TimeHorizon, GoalCategory, createGoal, Goal } from "../lib/store";
 
 interface Props {
@@ -10,10 +11,13 @@ interface Props {
 }
 
 export default function AddGoal({ horizon, category, onAdd }: Props) {
+  const { data: session } = useSession();
+  const userName = session?.user?.name?.split(" ")[0] || "";
+
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [owner, setOwner] = useState("");
+  const [owners, setOwners] = useState(userName);
   const [reasoning, setReasoning] = useState("");
 
   function handleSubmit(e: React.FormEvent) {
@@ -23,7 +27,7 @@ export default function AddGoal({ horizon, category, onAdd }: Props) {
       createGoal({
         title: title.trim(),
         description: description.trim(),
-        owner: owner.trim(),
+        owner: owners.trim(),
         reasoning: reasoning.trim(),
         horizon,
         category,
@@ -31,7 +35,7 @@ export default function AddGoal({ horizon, category, onAdd }: Props) {
     );
     setTitle("");
     setDescription("");
-    setOwner("");
+    setOwners(userName);
     setReasoning("");
     setOpen(false);
   }
@@ -40,7 +44,7 @@ export default function AddGoal({ horizon, category, onAdd }: Props) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="w-full border border-dashed border-neutral-300 rounded p-3 text-xs font-mono text-neutral-400 hover:border-neutral-500 hover:text-neutral-600 transition-colors"
+        className="w-full border border-dashed border-neutral-300 rounded-lg p-3 text-xs font-mono text-neutral-400 hover:border-neutral-500 hover:text-neutral-600 transition-colors"
       >
         + Add goal
       </button>
@@ -50,7 +54,7 @@ export default function AddGoal({ horizon, category, onAdd }: Props) {
   return (
     <form
       onSubmit={handleSubmit}
-      className="border border-neutral-300 rounded p-4 space-y-3"
+      className="border border-neutral-300 rounded-lg p-5 space-y-3"
     >
       <input
         className="w-full text-sm font-medium bg-transparent border-b border-neutral-300 pb-1 outline-none focus:border-black"
@@ -75,9 +79,9 @@ export default function AddGoal({ horizon, category, onAdd }: Props) {
       />
       <input
         className="w-full text-xs bg-transparent border-b border-neutral-200 pb-1 outline-none focus:border-black"
-        value={owner}
-        onChange={(e) => setOwner(e.target.value)}
-        placeholder="Owner (name)"
+        value={owners}
+        onChange={(e) => setOwners(e.target.value)}
+        placeholder="Owners (comma-separated, e.g. Bercan, Anton)"
       />
       <div className="flex gap-2">
         <button

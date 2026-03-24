@@ -87,7 +87,7 @@ export function useChatMessages() {
   const messages = useMemo(() => data ?? [], [data]);
 
   const sendMessage = useCallback(
-    async (content: string): Promise<{ reply?: string; error?: string }> => {
+    async (content: string): Promise<{ reply?: string; error?: string; createdGoals?: string[] }> => {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
