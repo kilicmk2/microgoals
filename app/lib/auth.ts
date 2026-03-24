@@ -12,6 +12,7 @@ function createDb() {
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: DrizzleAdapter(createDb()),
+  session: { strategy: "jwt" },
   providers: [Google],
   trustHost: true,
   pages: {
@@ -22,9 +23,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     signIn({ profile }) {
       return profile?.email?.endsWith("@micro-agi.com") ?? false;
     },
-    session({ session, user }) {
-      if (session.user && user) {
-        session.user.id = user.id;
+    jwt({ token, user }) {
+      if (user) {
+        token.id = user.id;
+      }
+      return token;
+    },
+    session({ session, token }) {
+      if (session.user && token.id) {
+        session.user.id = token.id as string;
       }
       return session;
     },
