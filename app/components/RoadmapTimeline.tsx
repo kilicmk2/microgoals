@@ -34,7 +34,7 @@ export default function RoadmapTimeline({ goals, category = "company", onUpdate,
   const [newDate, setNewDate] = useState("");
   const [newOwner, setNewOwner] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
 
   // Timeline spans 3 months from today
   const now = new Date();
@@ -102,15 +102,16 @@ export default function RoadmapTimeline({ goals, category = "company", onUpdate,
 
   function handleTimelineDrop(e: React.DragEvent) {
     e.preventDefault();
-    if (!dragId) return;
+    const goalId = e.dataTransfer.getData("text/plain");
+    if (!goalId) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    const pct = x / rect.width;
+    const pct = Math.max(0, Math.min(1, x / rect.width));
     const dayOffset = pct * totalDays;
     const newDateMs = startMs + dayOffset * 1000 * 60 * 60 * 24;
     const d = new Date(newDateMs);
-    onUpdate(dragId, { targetDate: toISO(d) });
-    setDragId(null);
+    onUpdate(goalId, { targetDate: toISO(d) });
+    setDragging(false);
   }
 
   function renderCard(m: typeof milestones[number], position: "above" | "below") {
@@ -124,9 +125,9 @@ export default function RoadmapTimeline({ goals, category = "company", onUpdate,
         onDragStart={(e) => {
           e.dataTransfer.setData("text/plain", m.id);
           e.dataTransfer.effectAllowed = "move";
-          setDragId(m.id);
+          setDragging(true);
         }}
-        onDragEnd={() => setDragId(null)}
+        onDragEnd={() => setDragging(false)}
       >
         {position === "above" && (
           <>
@@ -135,7 +136,7 @@ export default function RoadmapTimeline({ goals, category = "company", onUpdate,
                 <span className={`text-[9px] font-mono uppercase ${statusCfg.color}`}>
                   {statusCfg.label}
                 </span>
-                <div className="flex gap-1 opacity-0 group-hover/card:opacity-100 transition-opacity">
+                <div className="flex gap-1">
                   <select
                     value={m.status}
                     onChange={(e) => onUpdate(m.id, { status: e.target.value as GoalStatus })}
@@ -185,7 +186,7 @@ export default function RoadmapTimeline({ goals, category = "company", onUpdate,
                 <span className={`text-[9px] font-mono uppercase ${statusCfg.color}`}>
                   {statusCfg.label}
                 </span>
-                <div className="flex gap-1 opacity-0 group-hover/card:opacity-100 transition-opacity">
+                <div className="flex gap-1">
                   <select
                     value={m.status}
                     onChange={(e) => onUpdate(m.id, { status: e.target.value as GoalStatus })}
@@ -312,9 +313,9 @@ export default function RoadmapTimeline({ goals, category = "company", onUpdate,
 
           {/* Timeline axis */}
           <div className="absolute left-0 right-0" style={{ top: "200px" }}>
-            <div className={`h-px w-full relative transition-colors ${dragId ? "bg-black" : "bg-neutral-300"}`}>
+            <div className={`h-px w-full relative transition-colors ${dragging ? "bg-black" : "bg-neutral-300"}`}>
               {/* Arrow */}
-              <div className={`absolute right-0 -top-[4px] w-0 h-0 border-t-[5px] border-t-transparent border-b-[5px] border-b-transparent border-l-[8px] ${dragId ? "border-l-black" : "border-l-neutral-300"}`} />
+              <div className={`absolute right-0 -top-[4px] w-0 h-0 border-t-[5px] border-t-transparent border-b-[5px] border-b-transparent border-l-[8px] ${dragging ? "border-l-black" : "border-l-neutral-300"}`} />
 
               {/* Date markers */}
               {markers.map((mk, i) => {
@@ -347,7 +348,7 @@ export default function RoadmapTimeline({ goals, category = "company", onUpdate,
           </div>
 
           {/* Drag hint */}
-          {dragId && (
+          {dragging && (
             <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
               <span className="text-xs font-mono text-neutral-300 bg-white/80 px-3 py-1 rounded">
                 Drop on timeline to reposition

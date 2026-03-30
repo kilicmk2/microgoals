@@ -19,7 +19,6 @@ export default function Home() {
   const [horizon, setHorizon] = useState<TimeHorizon | null>(null);
   const [category, setCategory] = useState<GoalCategory | null>(null);
   const [workstream, setWorkstream] = useState<WorkStream | null>(null);
-  const [dragId, setDragId] = useState<string | null>(null);
   const dragIdRef = useRef<string | null>(null);
   const authenticated = status === "authenticated";
   const fetchCategory = category ?? "company";
@@ -56,15 +55,15 @@ export default function Home() {
     refreshGoals();
   }, [refreshGoals]);
 
+  const allHorizons = category === "executive" ? EXECUTIVE_HORIZONS : HORIZONS;
+  const horizonLabel = allHorizons.find((h) => h.key === horizon)?.label || "";
+
   const filtered = horizon
     ? goals
         .filter((g) => g.horizon === horizon)
         .filter((g) => !workstream || g.workstream === workstream)
         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     : [];
-
-  const allHorizons = category === "executive" ? EXECUTIVE_HORIZONS : HORIZONS;
-  const horizonLabel = allHorizons.find((h) => h.key === horizon)?.label || "";
 
   const doneCount = filtered.filter((g) => g.status === "done").length;
   const inProgressCount = filtered.filter((g) => g.status === "in_progress").length;
@@ -85,14 +84,9 @@ export default function Home() {
   }
 
   function handleHorizonClick(h: TimeHorizon) {
-    setHorizon(horizon === h ? null : h);
+    // Always select, never deselect
+    setHorizon(h);
   }
-
-  const handleDragStart = useCallback((e: React.DragEvent, id: string) => {
-    setDragId(id);
-    dragIdRef.current = id;
-    e.dataTransfer.effectAllowed = "move";
-  }, []);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -102,14 +96,14 @@ export default function Home() {
   const handleDrop = useCallback(
     (e: React.DragEvent, targetId: string) => {
       e.preventDefault();
-      const currentDragId = dragIdRef.current;
-      if (!currentDragId || currentDragId === targetId || !horizon) return;
+      const draggedId = e.dataTransfer.getData("text/plain");
+      if (!draggedId || draggedId === targetId || !horizon) return;
 
       const currentList = goals
         .filter((g) => g.horizon === horizon)
         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
-      const dragIndex = currentList.findIndex((g) => g.id === currentDragId);
+      const dragIndex = currentList.findIndex((g) => g.id === draggedId);
       const targetIndex = currentList.findIndex((g) => g.id === targetId);
       if (dragIndex === -1 || targetIndex === -1) return;
 
@@ -119,8 +113,6 @@ export default function Home() {
 
       const updates = reordered.map((g, i) => ({ id: g.id, order: i }));
       reorderGoals(updates);
-      setDragId(null);
-      dragIdRef.current = null;
     },
     [goals, horizon, reorderGoals]
   );
@@ -140,7 +132,7 @@ export default function Home() {
     }
   }, [status, router]);
 
-  if (status === "loading" || status === "unauthenticated" || !loaded) {
+  if (status === "loading" || status === "unauthenticated") {
     return (
       <div className="h-full flex items-center justify-center">
         <span className="text-xs font-mono text-neutral-400">Loading...</span>
@@ -243,31 +235,23 @@ export default function Home() {
       {category !== null && horizon && (
         <div className="flex-1 overflow-y-auto border-t border-neutral-100">
           <div className="max-w-2xl mx-auto px-8 py-8 pb-24">
-            <div className="flex items-baseline justify-between mb-6">
-              <div>
-                <h2 className="text-xl font-semibold tracking-tight text-black">
-                  {horizonLabel}
-                </h2>
-                <p className="text-[10px] font-mono text-neutral-400 mt-1">
-                  {category === "executive" ? "Executive" : category === "company" ? "Company" : "Personal"} &middot;{" "}
-                  {filtered.length} goal{filtered.length !== 1 ? "s" : ""}
-                  {doneCount > 0 && (
-                    <span className="text-green-600 ml-3">{doneCount} done</span>
-                  )}
-                  {inProgressCount > 0 && (
-                    <span className="text-blue-500 ml-3">{inProgressCount} active</span>
-                  )}
-                  {blockedCount > 0 && (
-                    <span className="text-red-500 ml-3">{blockedCount} blocked</span>
-                  )}
-                </p>
-              </div>
-              <button
-                onClick={() => setHorizon(null)}
-                className="text-xs font-mono text-neutral-400 hover:text-black transition-colors"
-              >
-                Close
-              </button>
+            <div className="mb-6">
+              <h2 className="text-xl font-semibold tracking-tight text-black">
+                {horizonLabel}
+              </h2>
+              <p className="text-[10px] font-mono text-neutral-400 mt-1">
+                {category === "executive" ? "Executive" : category === "company" ? "Company" : "Personal"} &middot;{" "}
+                {filtered.length} goal{filtered.length !== 1 ? "s" : ""}
+                {doneCount > 0 && (
+                  <span className="text-green-600 ml-3">{doneCount} done</span>
+                )}
+                {inProgressCount > 0 && (
+                  <span className="text-blue-500 ml-3">{inProgressCount} active</span>
+                )}
+                {blockedCount > 0 && (
+                  <span className="text-red-500 ml-3">{blockedCount} blocked</span>
+                )}
+              </p>
             </div>
 
             <div className="space-y-3">
@@ -282,7 +266,6 @@ export default function Home() {
                   isMaster={isMaster}
                   onApprove={approveGoal}
                   onReject={rejectGoal}
-                  onDragStart={handleDragStart}
                   onDragOver={handleDragOver}
                   onDrop={handleDrop}
                   availableHorizons={allHorizons}
@@ -291,14 +274,6 @@ export default function Home() {
               <AddGoal horizon={horizon} category={category} workstream={workstream} onAdd={addGoal} />
             </div>
           </div>
-        </div>
-      )}
-
-      {!horizon && (
-        <div className="flex-1 flex items-center justify-center">
-          <p className="text-xs font-mono text-neutral-300">
-            Click a time horizon to view goals
-          </p>
         </div>
       )}
 

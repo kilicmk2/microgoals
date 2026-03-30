@@ -128,6 +128,17 @@ export default function GoalCard({
         e.dataTransfer.setData("text/plain", goal.id);
         e.dataTransfer.effectAllowed = "move";
       }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        const draggedId = e.dataTransfer.getData("text/plain");
+        if (draggedId && draggedId !== goal.id && onDrop) {
+          onDrop(e, goal.id);
+        }
+      }}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
@@ -188,7 +199,7 @@ export default function GoalCard({
               </div>
             )}
         </div>
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+        <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
           <select
             value={goal.status}
             onChange={(e) => onUpdate(goal.id, { status: e.target.value as GoalStatus })}
