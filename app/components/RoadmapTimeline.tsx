@@ -5,6 +5,7 @@ import { Goal, GoalStatus, STATUS_CONFIG, createGoal } from "../lib/store";
 
 interface Props {
   goals: Goal[];
+  category?: string;
   onUpdate: (id: string, updates: Partial<Goal>) => void;
   onDelete: (id: string) => void;
   onAdd: (goal: Partial<Goal> & { title: string; horizon: string; category: string }) => void;
@@ -24,7 +25,7 @@ function toISO(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-export default function RoadmapTimeline({ goals, onUpdate, onDelete, onAdd }: Props) {
+export default function RoadmapTimeline({ goals, category = "company", onUpdate, onDelete, onAdd }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDate, setEditDate] = useState("");
   const [addOpen, setAddOpen] = useState(false);
@@ -57,9 +58,9 @@ export default function RoadmapTimeline({ goals, onUpdate, onDelete, onAdd }: Pr
     }
   }
 
-  // Only show pinned company goals with targetDate
+  // Show pinned goals with targetDate (any category the parent passes in)
   const milestones = goals
-    .filter((g) => g.pinned && g.targetDate && g.category === "company")
+    .filter((g) => g.pinned && g.targetDate)
     .map((g) => {
       const d = new Date(g.targetDate!);
       const dayOffset = (d.getTime() - startMs) / (1000 * 60 * 60 * 24);
@@ -88,7 +89,7 @@ export default function RoadmapTimeline({ goals, onUpdate, onDelete, onAdd }: Pr
         owner: newOwner.trim(),
         targetDate: newDate,
         horizon: "3m",
-        category: "company",
+        category,
         pinned: true,
       } as Partial<Goal> & Pick<Goal, "title" | "horizon" | "category">)
     );
