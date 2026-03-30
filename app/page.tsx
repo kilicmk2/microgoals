@@ -72,7 +72,15 @@ export default function Home() {
 
   function handleCategoryChange(c: GoalCategory | null) {
     setCategory(c);
-    setHorizon(c === "executive" ? "3m" as TimeHorizon : null);
+    if (c === "executive") {
+      setHorizon("3m" as TimeHorizon);
+    } else if (c === "company") {
+      setHorizon("weekly");
+    } else if (c === "personal") {
+      setHorizon("weekly");
+    } else {
+      setHorizon(null);
+    }
     setWorkstream(null);
   }
 
