@@ -26,6 +26,7 @@ function goal(
     approved: true,
     proposedBy: null,
     workstream: opts.workstream || null,
+    targetDate: opts.targetDate || null,
     createdAt: now,
     updatedAt: now,
   };

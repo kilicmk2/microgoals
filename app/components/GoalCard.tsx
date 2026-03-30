@@ -39,12 +39,13 @@ export default function GoalCard({
   const [description, setDescription] = useState(goal.description);
   const [reasoning, setReasoning] = useState(goal.reasoning);
   const [owner, setOwner] = useState(goal.owner);
+  const [targetDate, setTargetDate] = useState(goal.targetDate || "");
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const statusCfg = STATUS_CONFIG[goal.status];
 
   function handleSave() {
-    onUpdate(goal.id, { title, description, reasoning, owner });
+    onUpdate(goal.id, { title, description, reasoning, owner, targetDate: targetDate || null });
     setEditing(false);
   }
 
@@ -86,6 +87,15 @@ export default function GoalCard({
           onChange={(e) => setOwner(e.target.value)}
           placeholder="Owner (name)"
         />
+        <div className="flex items-center gap-2">
+          <label className="text-[10px] font-mono text-neutral-400 shrink-0">Target date</label>
+          <input
+            type="date"
+            className="text-xs bg-transparent border-b border-neutral-200 pb-1 outline-none focus:border-black"
+            value={targetDate}
+            onChange={(e) => setTargetDate(e.target.value)}
+          />
+        </div>
         <div className="flex gap-2">
           <button
             onClick={handleSave}
@@ -151,8 +161,12 @@ export default function GoalCard({
             {goal.reasoning && (
               <p className="text-xs text-neutral-400 mt-1 italic">Why: {goal.reasoning}</p>
             )}
-            {goal.owner && (
-              <p className="text-[10px] font-mono text-neutral-400 mt-2">Owner: {goal.owner}</p>
+            {(goal.owner || goal.targetDate) && (
+              <p className="text-[10px] font-mono text-neutral-400 mt-2">
+                {goal.owner && <span>Owner: {goal.owner}</span>}
+                {goal.owner && goal.targetDate && <span className="mx-2">&middot;</span>}
+                {goal.targetDate && <span>Target: {goal.targetDate}</span>}
+              </p>
             )}
             {goal.proposedBy && (
               <p className="text-[10px] font-mono text-yellow-600 mt-1">Proposed by: {goal.proposedBy}</p>

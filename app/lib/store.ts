@@ -30,6 +30,7 @@ export interface Goal {
   approved: boolean;
   proposedBy: string | null;
   workstream: string | null;
+  targetDate: string | null;
   createdAt: string;
   updatedAt: string;
 }

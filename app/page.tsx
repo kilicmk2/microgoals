@@ -10,19 +10,21 @@ import GoalCard from "./components/GoalCard";
 import AddGoal from "./components/AddGoal";
 import ChatBubble from "./components/ChatBubble";
 import WorkStreamNav from "./components/WorkStreamNav";
+import RoadmapTimeline from "./components/RoadmapTimeline";
 import Logo from "./components/Logo";
 
 export default function Home() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [horizon, setHorizon] = useState<TimeHorizon | null>(null);
-  const [category, setCategory] = useState<GoalCategory>("company");
+  const [category, setCategory] = useState<GoalCategory | null>(null);
   const [workstream, setWorkstream] = useState<WorkStream | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const dragIdRef = useRef<string | null>(null);
   const authenticated = status === "authenticated";
+  const fetchCategory = category ?? "company";
   const { goals, loaded, addGoal, updateGoal, deleteGoal, reorderGoals, refreshGoals } =
-    useGoals(category, authenticated);
+    useGoals(fetchCategory, authenticated);
   const { messages, sendMessage: rawSendMessage, clearChat } = useChatMessages();
 
   const isMaster = session?.user?.email === MASTER_EMAIL;
@@ -68,7 +70,7 @@ export default function Home() {
   const inProgressCount = filtered.filter((g) => g.status === "in_progress").length;
   const blockedCount = filtered.filter((g) => g.status === "blocked").length;
 
-  function handleCategoryChange(c: GoalCategory) {
+  function handleCategoryChange(c: GoalCategory | null) {
     setCategory(c);
     setHorizon(c === "executive" ? "3m" as TimeHorizon : null);
     setWorkstream(null);
@@ -146,6 +148,16 @@ export default function Home() {
           <h1 className="text-base tracking-tight"><Logo /></h1>
           <div className="flex items-center gap-8">
             <button
+              onClick={() => handleCategoryChange(null)}
+              className={`text-xs font-mono uppercase tracking-widest transition-colors pb-0.5 ${
+                category === null
+                  ? "text-black border-b border-black"
+                  : "text-neutral-400 hover:text-neutral-600"
+              }`}
+            >
+              Roadmap
+            </button>
+            <button
               onClick={() => handleCategoryChange("company")}
               className={`text-xs font-mono uppercase tracking-widest transition-colors pb-0.5 ${
                 category === "company"
@@ -194,6 +206,11 @@ export default function Home() {
         </div>
       </nav>
 
+      {/* Roadmap landing */}
+      {category === null && (
+        <RoadmapTimeline goals={goals} onUpdate={updateGoal} />
+      )}
+
       {/* Work stream filter (executive only) */}
       {category === "executive" && (
         <div className="w-full max-w-6xl mx-auto border-b border-neutral-100">
@@ -202,18 +219,20 @@ export default function Home() {
       )}
 
       {/* Timeline */}
-      <div className="w-full max-w-6xl mx-auto">
-        <HorizonNav
-          activeHorizon={horizon}
-          category={category}
-          goals={goals}
-          onHorizonChange={handleHorizonClick}
-          onDropGoal={handleDropOnHorizon}
-        />
-      </div>
+      {category !== null && (
+        <div className="w-full max-w-6xl mx-auto">
+          <HorizonNav
+            activeHorizon={horizon}
+            category={category}
+            goals={goals}
+            onHorizonChange={handleHorizonClick}
+            onDropGoal={handleDropOnHorizon}
+          />
+        </div>
+      )}
 
       {/* Goal detail panel */}
-      {horizon && (
+      {category !== null && horizon && (
         <div className="flex-1 overflow-y-auto border-t border-neutral-100">
           <div className="max-w-2xl mx-auto px-8 py-8 pb-24">
             <div className="flex items-baseline justify-between mb-6">

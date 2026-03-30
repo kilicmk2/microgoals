@@ -27,6 +27,7 @@ export async function PATCH(
     if (body.pinned !== undefined) updates.pinned = body.pinned;
     if (body.order !== undefined) updates.order = body.order;
     if (body.workstream !== undefined) updates.workstream = body.workstream;
+    if (body.targetDate !== undefined) updates.targetDate = body.targetDate;
 
     const [updated] = await getDb()
       .update(goals)

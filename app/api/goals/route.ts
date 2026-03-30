@@ -87,6 +87,7 @@ export async function POST(req: NextRequest) {
         approved: body.category === "executive" ? true : !needsApproval,
         proposedBy: needsApproval ? (session.user.email ?? "") : null,
         workstream: body.workstream || null,
+        targetDate: body.targetDate || null,
       })
       .returning();
 

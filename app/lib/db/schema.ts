@@ -79,6 +79,7 @@ export const goals = pgTable("goals", {
   approved: boolean("approved").default(true),
   proposedBy: text("proposedBy"),
   workstream: text("workstream"),
+  targetDate: text("targetDate"),
   createdAt: timestamp("createdAt", { mode: "date" }).defaultNow(),
   updatedAt: timestamp("updatedAt", { mode: "date" }).defaultNow(),
 });
