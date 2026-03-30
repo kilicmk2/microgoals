@@ -25,6 +25,7 @@ function goal(
     order: order++,
     approved: true,
     proposedBy: null,
+    workstream: opts.workstream || null,
     createdAt: now,
     updatedAt: now,
   };

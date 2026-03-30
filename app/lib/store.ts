@@ -1,6 +1,18 @@
 export type GoalStatus = "not_started" | "in_progress" | "done" | "blocked";
-export type TimeHorizon = "5y" | "2y" | "1y" | "6m" | "monthly" | "weekly";
-export type GoalCategory = "company" | "personal";
+export type TimeHorizon = "5y" | "2y" | "1y" | "6m" | "3m" | "monthly" | "weekly";
+export type GoalCategory = "company" | "personal" | "executive";
+export type WorkStream =
+  | "network"
+  | "payment"
+  | "hardware"
+  | "app"
+  | "pipeline"
+  | "microops"
+  | "research"
+  | "sales"
+  | "fundraising"
+  | "marketing"
+  | "finance";
 
 export interface Goal {
   id: string;
@@ -17,11 +29,49 @@ export interface Goal {
   order: number;
   approved: boolean;
   proposedBy: string | null;
+  workstream: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
 export const MASTER_EMAIL = "bercan.kilic@micro-agi.com";
+export const EXECUTIVE_EMAILS = ["addy@micro-agi.com", "bercan.kilic@micro-agi.com"];
+
+export const WORK_STREAMS: { key: WorkStream; label: string }[] = [
+  { key: "network", label: "Network" },
+  { key: "payment", label: "Payment" },
+  { key: "hardware", label: "Hardware & Sourcing" },
+  { key: "app", label: "App" },
+  { key: "pipeline", label: "Pipeline" },
+  { key: "microops", label: "MicroOps" },
+  { key: "research", label: "Research" },
+  { key: "sales", label: "Sales" },
+  { key: "fundraising", label: "Fundraising/Comms" },
+  { key: "marketing", label: "Marketing & Brand" },
+  { key: "finance", label: "Finance/Legal/HR" },
+];
+
+export const WORK_STREAM_SHORT: Record<WorkStream, string> = {
+  network: "NET",
+  payment: "PAY",
+  hardware: "HW",
+  app: "APP",
+  pipeline: "PIPE",
+  microops: "OPS",
+  research: "RES",
+  sales: "SALES",
+  fundraising: "FUND",
+  marketing: "MKT",
+  finance: "FIN",
+};
+
+export const EXECUTIVE_HORIZONS: { key: TimeHorizon; label: string }[] = [
+  { key: "weekly", label: "Weekly" },
+  { key: "monthly", label: "Monthly" },
+  { key: "3m", label: "3 Month" },
+  { key: "1y", label: "1 Year" },
+  { key: "5y", label: "5 Year" },
+];
 
 export interface ChatMessage {
   id: string;

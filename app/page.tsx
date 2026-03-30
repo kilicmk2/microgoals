@@ -3,12 +3,13 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { TimeHorizon, GoalCategory, HORIZONS, MASTER_EMAIL } from "./lib/store";
+import { TimeHorizon, GoalCategory, WorkStream, HORIZONS, EXECUTIVE_HORIZONS, EXECUTIVE_EMAILS, MASTER_EMAIL } from "./lib/store";
 import { useGoals, useChatMessages } from "./lib/hooks";
 import HorizonNav from "./components/HorizonNav";
 import GoalCard from "./components/GoalCard";
 import AddGoal from "./components/AddGoal";
 import ChatBubble from "./components/ChatBubble";
+import WorkStreamNav from "./components/WorkStreamNav";
 import Logo from "./components/Logo";
 
 export default function Home() {
@@ -16,6 +17,7 @@ export default function Home() {
   const router = useRouter();
   const [horizon, setHorizon] = useState<TimeHorizon | null>(null);
   const [category, setCategory] = useState<GoalCategory>("company");
+  const [workstream, setWorkstream] = useState<WorkStream | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const dragIdRef = useRef<string | null>(null);
   const { goals, loaded, addGoal, updateGoal, deleteGoal, reorderGoals, refreshGoals } =
@@ -23,6 +25,7 @@ export default function Home() {
   const { messages, sendMessage: rawSendMessage, clearChat } = useChatMessages();
 
   const isMaster = session?.user?.email === MASTER_EMAIL;
+  const isExecutive = EXECUTIVE_EMAILS.includes(session?.user?.email ?? "");
 
   const sendMessage = useCallback(async (content: string) => {
     const result = await rawSendMessage(content);
@@ -53,10 +56,12 @@ export default function Home() {
   const filtered = horizon
     ? goals
         .filter((g) => g.horizon === horizon)
+        .filter((g) => !workstream || g.workstream === workstream)
         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     : [];
 
-  const horizonLabel = HORIZONS.find((h) => h.key === horizon)?.label || "";
+  const allHorizons = category === "executive" ? EXECUTIVE_HORIZONS : HORIZONS;
+  const horizonLabel = allHorizons.find((h) => h.key === horizon)?.label || "";
 
   const doneCount = filtered.filter((g) => g.status === "done").length;
   const inProgressCount = filtered.filter((g) => g.status === "in_progress").length;
@@ -64,7 +69,8 @@ export default function Home() {
 
   function handleCategoryChange(c: GoalCategory) {
     setCategory(c);
-    setHorizon(null);
+    setHorizon(c === "executive" ? "3m" as TimeHorizon : null);
+    setWorkstream(null);
   }
 
   function handleHorizonClick(h: TimeHorizon) {
@@ -158,6 +164,18 @@ export default function Home() {
             >
               Personal
             </button>
+            {isExecutive && (
+              <button
+                onClick={() => handleCategoryChange("executive")}
+                className={`text-xs font-mono uppercase tracking-widest transition-colors pb-0.5 ${
+                  category === "executive"
+                    ? "text-black border-b border-black"
+                    : "text-neutral-400 hover:text-neutral-600"
+                }`}
+              >
+                Executive
+              </button>
+            )}
             {session?.user && (
               <div className="flex items-center gap-3 ml-4 pl-4 border-l border-neutral-200">
                 <span className="text-[10px] font-mono text-neutral-400">
@@ -174,6 +192,13 @@ export default function Home() {
           </div>
         </div>
       </nav>
+
+      {/* Work stream filter (executive only) */}
+      {category === "executive" && (
+        <div className="w-full max-w-6xl mx-auto border-b border-neutral-100">
+          <WorkStreamNav active={workstream} onChange={setWorkstream} goals={goals} />
+        </div>
+      )}
 
       {/* Timeline */}
       <div className="w-full max-w-6xl mx-auto">
@@ -196,7 +221,7 @@ export default function Home() {
                   {horizonLabel}
                 </h2>
                 <p className="text-[10px] font-mono text-neutral-400 mt-1">
-                  {category === "company" ? "Company" : "Personal"} &middot;{" "}
+                  {category === "executive" ? "Executive" : category === "company" ? "Company" : "Personal"} &middot;{" "}
                   {filtered.length} goal{filtered.length !== 1 ? "s" : ""}
                   {doneCount > 0 && (
                     <span className="text-green-600 ml-3">{doneCount} done</span>
@@ -225,16 +250,17 @@ export default function Home() {
                   onUpdate={updateGoal}
                   onDelete={deleteGoal}
                   childCount={goals.filter((g) => g.parentId === goal.id).length}
-                  showPin={category === "company"}
+                  showPin={category === "company" || category === "executive"}
                   isMaster={isMaster}
                   onApprove={approveGoal}
                   onReject={rejectGoal}
                   onDragStart={handleDragStart}
                   onDragOver={handleDragOver}
                   onDrop={handleDrop}
+                  availableHorizons={allHorizons}
                 />
               ))}
-              <AddGoal horizon={horizon} category={category} onAdd={addGoal} />
+              <AddGoal horizon={horizon} category={category} workstream={workstream} onAdd={addGoal} />
             </div>
           </div>
         </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Goal, GoalStatus, STATUS_CONFIG, HORIZONS, TimeHorizon } from "../lib/store";
+import { Goal, GoalStatus, STATUS_CONFIG, HORIZONS, TimeHorizon, WORK_STREAM_SHORT, WorkStream } from "../lib/store";
 
 interface Props {
   goal: Goal;
@@ -15,6 +15,7 @@ interface Props {
   onDragStart?: (e: React.DragEvent, id: string) => void;
   onDragOver?: (e: React.DragEvent) => void;
   onDrop?: (e: React.DragEvent, id: string) => void;
+  availableHorizons?: { key: TimeHorizon; label: string }[];
 }
 
 const STATUS_OPTIONS: GoalStatus[] = ["not_started", "in_progress", "done", "blocked"];
@@ -31,6 +32,7 @@ export default function GoalCard({
   onDragStart,
   onDragOver,
   onDrop,
+  availableHorizons = HORIZONS,
 }: Props) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(goal.title);
@@ -131,6 +133,11 @@ export default function GoalCard({
               {goal.pinned && goal.approved && (
                 <span className="text-[10px] font-mono text-black">HIGHLIGHTED</span>
               )}
+              {goal.workstream && (
+                <span className="text-[10px] font-mono text-neutral-500 bg-neutral-100 px-1.5 py-0.5 rounded">
+                  {WORK_STREAM_SHORT[goal.workstream as WorkStream] || goal.workstream}
+                </span>
+              )}
               {childCount > 0 && (
                 <span className="text-[10px] font-mono text-neutral-400">
                   {childCount} sub-goal{childCount > 1 ? "s" : ""}
@@ -185,7 +192,7 @@ export default function GoalCard({
             className="text-[10px] font-mono bg-transparent border border-neutral-200 rounded px-1 py-0.5 outline-none cursor-pointer"
             title="Move to horizon"
           >
-            {HORIZONS.map((h) => (
+            {availableHorizons.map((h) => (
               <option key={h.key} value={h.key}>
                 {h.label}
               </option>

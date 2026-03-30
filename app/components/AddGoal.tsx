@@ -2,15 +2,16 @@
 
 import { useState } from "react";
 import { useSession } from "next-auth/react";
-import { TimeHorizon, GoalCategory, createGoal, Goal } from "../lib/store";
+import { TimeHorizon, GoalCategory, createGoal, Goal, WORK_STREAMS, WorkStream } from "../lib/store";
 
 interface Props {
   horizon: TimeHorizon;
   category: GoalCategory;
+  workstream?: string | null;
   onAdd: (goal: Partial<Goal> & { title: string; horizon: string; category: string }) => void;
 }
 
-export default function AddGoal({ horizon, category, onAdd }: Props) {
+export default function AddGoal({ horizon, category, workstream, onAdd }: Props) {
   const { data: session } = useSession();
   const userName = session?.user?.name?.split(" ")[0] || "";
 
@@ -19,6 +20,7 @@ export default function AddGoal({ horizon, category, onAdd }: Props) {
   const [description, setDescription] = useState("");
   const [owners, setOwners] = useState(userName);
   const [reasoning, setReasoning] = useState("");
+  const [selectedWs, setSelectedWs] = useState<string>(workstream || "");
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -31,12 +33,14 @@ export default function AddGoal({ horizon, category, onAdd }: Props) {
         reasoning: reasoning.trim(),
         horizon,
         category,
-      })
+        ...(category === "executive" && selectedWs ? { workstream: selectedWs } : {}),
+      } as Partial<Goal> & Pick<Goal, "title" | "horizon" | "category">)
     );
     setTitle("");
     setDescription("");
     setOwners(userName);
     setReasoning("");
+    setSelectedWs(workstream || "");
     setOpen(false);
   }
 
@@ -83,6 +87,20 @@ export default function AddGoal({ horizon, category, onAdd }: Props) {
         onChange={(e) => setOwners(e.target.value)}
         placeholder="Owners (comma-separated, e.g. Bercan, Anton)"
       />
+      {category === "executive" && (
+        <select
+          className="w-full text-xs bg-transparent border border-neutral-200 rounded p-2 outline-none focus:border-black"
+          value={selectedWs}
+          onChange={(e) => setSelectedWs(e.target.value)}
+        >
+          <option value="">Work stream (optional)</option>
+          {WORK_STREAMS.map((ws) => (
+            <option key={ws.key} value={ws.key}>
+              {ws.label}
+            </option>
+          ))}
+        </select>
+      )}
       <div className="flex gap-2">
         <button
           type="submit"

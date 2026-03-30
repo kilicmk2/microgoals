@@ -3,7 +3,7 @@ import { auth } from "@/app/lib/auth";
 import { getDb } from "@/app/lib/db";
 import { goals } from "@/app/lib/db/schema";
 import { eq, and, or, asc } from "drizzle-orm";
-import { MASTER_EMAIL } from "@/app/lib/store";
+import { MASTER_EMAIL, EXECUTIVE_EMAILS } from "@/app/lib/store";
 
 export async function GET(req: NextRequest) {
   try {
@@ -18,7 +18,14 @@ export async function GET(req: NextRequest) {
 
     const conditions = [];
 
-    if (category === "company") {
+    if (category === "executive") {
+      if (!EXECUTIVE_EMAILS.includes(session.user.email ?? "")) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      conditions.push(eq(goals.category, "executive"));
+      const ws = req.nextUrl.searchParams.get("workstream");
+      if (ws) conditions.push(eq(goals.workstream, ws));
+    } else if (category === "company") {
       conditions.push(eq(goals.category, "company"));
       if (!isMaster) {
         conditions.push(
@@ -55,6 +62,12 @@ export async function POST(req: NextRequest) {
     const userId = session.user.email || session.user.id || "";
     const body = await req.json();
     const isMaster = session.user.email === MASTER_EMAIL;
+    const isExecutive = EXECUTIVE_EMAILS.includes(session.user.email ?? "");
+
+    if (body.category === "executive" && !isExecutive) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const needsApproval = body.category === "company" && !isMaster;
 
     const [created] = await getDb()
@@ -71,8 +84,9 @@ export async function POST(req: NextRequest) {
         reasoning: body.reasoning || "",
         pinned: body.pinned || false,
         order: body.order ? Math.min(body.order, 2000000000) : Math.floor(Date.now() / 1000) % 2000000000,
-        approved: !needsApproval,
+        approved: body.category === "executive" ? true : !needsApproval,
         proposedBy: needsApproval ? (session.user.email ?? "") : null,
+        workstream: body.workstream || null,
       })
       .returning();
 

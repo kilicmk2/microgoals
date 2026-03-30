@@ -7,6 +7,7 @@ import {
   GoalCategory,
   PERSONAL_HORIZONS,
   PERSONAL_EXTRA_HORIZONS,
+  EXECUTIVE_HORIZONS,
   Goal,
 } from "../lib/store";
 
@@ -25,7 +26,9 @@ export default function HorizonNav({
   onHorizonChange,
   onDropGoal,
 }: Props) {
-  const horizons = category === "personal"
+  const horizons = category === "executive"
+    ? EXECUTIVE_HORIZONS
+    : category === "personal"
     ? [...PERSONAL_HORIZONS, ...PERSONAL_EXTRA_HORIZONS]
     : HORIZONS;
 
