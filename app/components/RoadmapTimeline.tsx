@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Goal } from "../lib/store";
+import { Goal, GoalStatus, STATUS_CONFIG, createGoal } from "../lib/store";
 
 interface Props {
   goals: Goal[];
   onUpdate: (id: string, updates: Partial<Goal>) => void;
+  onDelete: (id: string) => void;
+  onAdd: (goal: Partial<Goal> & { title: string; horizon: string; category: string }) => void;
 }
 
 function fmtDate(d: Date): string {
@@ -22,11 +24,18 @@ function toISO(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-export default function RoadmapTimeline({ goals, onUpdate }: Props) {
+export default function RoadmapTimeline({ goals, onUpdate, onDelete, onAdd }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDate, setEditDate] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newDesc, setNewDesc] = useState("");
+  const [newDate, setNewDate] = useState("");
+  const [newOwner, setNewOwner] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
 
-  // Timeline spans 3 months from today — stable per mount
+  // Timeline spans 3 months from today
   const now = new Date();
   const startMs = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
   const endMs = new Date(now.getFullYear(), now.getMonth() + 3, 15).getTime();
@@ -54,13 +63,11 @@ export default function RoadmapTimeline({ goals, onUpdate }: Props) {
     .map((g) => {
       const d = new Date(g.targetDate!);
       const dayOffset = (d.getTime() - startMs) / (1000 * 60 * 60 * 24);
-      const pct = Math.max(0, Math.min(100, (dayOffset / totalDays) * 100));
+      const pct = Math.max(2, Math.min(98, (dayOffset / totalDays) * 100));
       return { ...g, date: d, pct };
     })
     .sort((a, b) => a.date.getTime() - b.date.getTime());
 
-  // Group milestones into time bands so they don't overlap
-  // Band 1: goals positioned above the line, Band 2: below
   const above = milestones.filter((_, i) => i % 2 === 0);
   const below = milestones.filter((_, i) => i % 2 === 1);
 
@@ -72,192 +79,286 @@ export default function RoadmapTimeline({ goals, onUpdate }: Props) {
     setEditDate("");
   }
 
+  function handleAdd() {
+    if (!newTitle.trim() || !newDate) return;
+    onAdd(
+      createGoal({
+        title: newTitle.trim(),
+        description: newDesc.trim(),
+        owner: newOwner.trim(),
+        targetDate: newDate,
+        horizon: "3m",
+        category: "company",
+        pinned: true,
+      } as Partial<Goal> & Pick<Goal, "title" | "horizon" | "category">)
+    );
+    setNewTitle("");
+    setNewDesc("");
+    setNewDate("");
+    setNewOwner("");
+    setAddOpen(false);
+  }
+
+  function handleTimelineDrop(e: React.DragEvent) {
+    e.preventDefault();
+    if (!dragId) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const pct = x / rect.width;
+    const dayOffset = pct * totalDays;
+    const newDateMs = startMs + dayOffset * 1000 * 60 * 60 * 24;
+    const d = new Date(newDateMs);
+    onUpdate(dragId, { targetDate: toISO(d) });
+    setDragId(null);
+  }
+
+  function renderCard(m: typeof milestones[number], position: "above" | "below") {
+    const statusCfg = STATUS_CONFIG[m.status as GoalStatus] || STATUS_CONFIG.not_started;
+    return (
+      <div
+        key={m.id}
+        className={`absolute w-52 ${position === "above" ? "bottom-0" : "top-0"}`}
+        style={{ left: `${m.pct}%`, transform: "translateX(-50%)" }}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData("text/plain", m.id);
+          e.dataTransfer.effectAllowed = "move";
+          setDragId(m.id);
+        }}
+        onDragEnd={() => setDragId(null)}
+      >
+        {position === "above" && (
+          <>
+            <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-3 mb-2 hover:border-neutral-400 transition-colors cursor-grab active:cursor-grabbing group/card">
+              <div className="flex items-center justify-between mb-1">
+                <span className={`text-[9px] font-mono uppercase ${statusCfg.color}`}>
+                  {statusCfg.label}
+                </span>
+                <div className="flex gap-1 opacity-0 group-hover/card:opacity-100 transition-opacity">
+                  <select
+                    value={m.status}
+                    onChange={(e) => onUpdate(m.id, { status: e.target.value as GoalStatus })}
+                    className="text-[9px] font-mono bg-transparent border border-neutral-200 rounded px-0.5 outline-none cursor-pointer"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {(["not_started", "in_progress", "done", "blocked"] as GoalStatus[]).map((s) => (
+                      <option key={s} value={s}>{STATUS_CONFIG[s].label}</option>
+                    ))}
+                  </select>
+                  {confirmDeleteId === m.id ? (
+                    <div className="flex gap-0.5">
+                      <button onClick={() => { onDelete(m.id); setConfirmDeleteId(null); }} className="text-[9px] font-mono text-red-500 hover:text-red-700">Yes</button>
+                      <button onClick={() => setConfirmDeleteId(null)} className="text-[9px] font-mono text-neutral-400">No</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setConfirmDeleteId(m.id)} className="text-[9px] font-mono text-neutral-300 hover:text-red-500">&times;</button>
+                  )}
+                </div>
+              </div>
+              <h3 className="text-[11px] font-medium text-black leading-snug mb-0.5">{m.title}</h3>
+              {m.description && (
+                <p className="text-[10px] text-neutral-500 leading-relaxed line-clamp-2">{m.description}</p>
+              )}
+              <div className="flex items-center justify-between mt-1.5">
+                {editingId === m.id ? (
+                  <div className="flex items-center gap-1">
+                    <input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)}
+                      className="text-[10px] font-mono border border-neutral-300 rounded px-1 py-0.5 outline-none" autoFocus />
+                    <button onClick={() => handleDateSave(m.id)} className="text-[10px] font-mono text-black hover:underline">OK</button>
+                  </div>
+                ) : (
+                  <button onClick={() => { setEditingId(m.id); setEditDate(m.targetDate || toISO(m.date)); }}
+                    className="text-[10px] font-mono text-neutral-400 hover:text-black transition-colors">{fmtDate(m.date)}</button>
+                )}
+                {m.owner && <span className="text-[9px] font-mono text-neutral-300">{m.owner}</span>}
+              </div>
+            </div>
+            <div className="w-px h-3 bg-neutral-300 mx-auto" />
+          </>
+        )}
+        {position === "below" && (
+          <>
+            <div className="w-px h-3 bg-neutral-300 mx-auto" />
+            <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-3 hover:border-neutral-400 transition-colors cursor-grab active:cursor-grabbing group/card">
+              <div className="flex items-center justify-between mb-1">
+                <span className={`text-[9px] font-mono uppercase ${statusCfg.color}`}>
+                  {statusCfg.label}
+                </span>
+                <div className="flex gap-1 opacity-0 group-hover/card:opacity-100 transition-opacity">
+                  <select
+                    value={m.status}
+                    onChange={(e) => onUpdate(m.id, { status: e.target.value as GoalStatus })}
+                    className="text-[9px] font-mono bg-transparent border border-neutral-200 rounded px-0.5 outline-none cursor-pointer"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {(["not_started", "in_progress", "done", "blocked"] as GoalStatus[]).map((s) => (
+                      <option key={s} value={s}>{STATUS_CONFIG[s].label}</option>
+                    ))}
+                  </select>
+                  {confirmDeleteId === m.id ? (
+                    <div className="flex gap-0.5">
+                      <button onClick={() => { onDelete(m.id); setConfirmDeleteId(null); }} className="text-[9px] font-mono text-red-500 hover:text-red-700">Yes</button>
+                      <button onClick={() => setConfirmDeleteId(null)} className="text-[9px] font-mono text-neutral-400">No</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setConfirmDeleteId(m.id)} className="text-[9px] font-mono text-neutral-300 hover:text-red-500">&times;</button>
+                  )}
+                </div>
+              </div>
+              <h3 className="text-[11px] font-medium text-black leading-snug mb-0.5">{m.title}</h3>
+              {m.description && (
+                <p className="text-[10px] text-neutral-500 leading-relaxed line-clamp-2">{m.description}</p>
+              )}
+              <div className="flex items-center justify-between mt-1.5">
+                {editingId === m.id ? (
+                  <div className="flex items-center gap-1">
+                    <input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)}
+                      className="text-[10px] font-mono border border-neutral-300 rounded px-1 py-0.5 outline-none" autoFocus />
+                    <button onClick={() => handleDateSave(m.id)} className="text-[10px] font-mono text-black hover:underline">OK</button>
+                  </div>
+                ) : (
+                  <button onClick={() => { setEditingId(m.id); setEditDate(m.targetDate || toISO(m.date)); }}
+                    className="text-[10px] font-mono text-neutral-400 hover:text-black transition-colors">{fmtDate(m.date)}</button>
+                )}
+                {m.owner && <span className="text-[9px] font-mono text-neutral-300">{m.owner}</span>}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="w-full max-w-6xl mx-auto px-6 py-12">
       {/* Header */}
-      <div className="mb-12">
-        <h1 className="text-2xl font-medium tracking-tight text-black">
-          3-Month Roadmap
-        </h1>
-        <p className="text-xs font-mono text-neutral-400 mt-2 uppercase tracking-widest">
-          {fmtMonth(new Date(startMs))} — {fmtMonth(new Date(endMs))} {new Date(endMs).getFullYear()}
-        </p>
-      </div>
-
-      {milestones.length === 0 ? (
-        <div className="text-center py-20">
-          <p className="text-sm text-neutral-400 font-mono">
-            No milestones yet
-          </p>
-          <p className="text-xs text-neutral-300 font-mono mt-2">
-            Pin company goals and set a target date to see them here
+      <div className="flex items-center justify-between mb-12">
+        <div>
+          <h1 className="text-2xl font-medium tracking-tight text-black">
+            3-Month Roadmap
+          </h1>
+          <p className="text-xs font-mono text-neutral-400 mt-2 uppercase tracking-widest">
+            {fmtMonth(new Date(startMs))} — {fmtMonth(new Date(endMs))} {new Date(endMs).getFullYear()}
           </p>
         </div>
-      ) : (
-        <div className="relative" style={{ height: "420px" }}>
+        <button
+          onClick={() => setAddOpen(!addOpen)}
+          className="text-xs font-mono px-4 py-2 bg-black text-white rounded hover:bg-neutral-800 transition-colors"
+        >
+          + Add milestone
+        </button>
+      </div>
+
+      {/* Add form */}
+      {addOpen && (
+        <div className="border border-neutral-300 rounded-lg p-5 mb-8 space-y-3">
+          <input
+            className="w-full text-sm font-medium bg-transparent border-b border-neutral-300 pb-1 outline-none focus:border-black"
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            placeholder="Milestone title"
+            autoFocus
+          />
+          <textarea
+            className="w-full text-xs bg-transparent border border-neutral-200 rounded p-2 outline-none focus:border-black resize-none"
+            value={newDesc}
+            onChange={(e) => setNewDesc(e.target.value)}
+            placeholder="Description (optional)"
+            rows={2}
+          />
+          <div className="flex gap-4">
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] font-mono text-neutral-400">Target date</label>
+              <input
+                type="date"
+                className="text-xs bg-transparent border border-neutral-200 rounded px-2 py-1 outline-none focus:border-black"
+                value={newDate}
+                onChange={(e) => setNewDate(e.target.value)}
+              />
+            </div>
+            <input
+              className="flex-1 text-xs bg-transparent border-b border-neutral-200 pb-1 outline-none focus:border-black"
+              value={newOwner}
+              onChange={(e) => setNewOwner(e.target.value)}
+              placeholder="Owner (optional)"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={handleAdd} className="text-xs font-mono px-3 py-1 bg-black text-white rounded hover:bg-neutral-800">Add</button>
+            <button onClick={() => setAddOpen(false)} className="text-xs font-mono px-3 py-1 text-neutral-500 hover:text-black">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {milestones.length === 0 && !addOpen ? (
+        <div className="text-center py-20">
+          <p className="text-sm text-neutral-400 font-mono">No milestones yet</p>
+          <p className="text-xs text-neutral-300 font-mono mt-2">
+            Click &quot;+ Add milestone&quot; to create one, or pin company goals with a target date
+          </p>
+        </div>
+      ) : milestones.length > 0 && (
+        <div
+          className="relative"
+          style={{ height: "440px" }}
+          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
+          onDrop={handleTimelineDrop}
+        >
           {/* Above-line milestones */}
-          <div className="absolute left-0 right-0 top-0" style={{ height: "180px" }}>
-            {above.map((m) => (
-              <div
-                key={m.id}
-                className="absolute bottom-0 w-56"
-                style={{ left: `${m.pct}%`, transform: "translateX(-50%)" }}
-              >
-                <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-4 mb-3 hover:border-neutral-400 transition-colors">
-                  <h3 className="text-xs font-medium text-black leading-snug mb-1">
-                    {m.title}
-                  </h3>
-                  {m.description && (
-                    <p className="text-[10px] text-neutral-500 leading-relaxed line-clamp-2">
-                      {m.description}
-                    </p>
-                  )}
-                  <div className="flex items-center justify-between mt-2">
-                    {editingId === m.id ? (
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="date"
-                          value={editDate}
-                          onChange={(e) => setEditDate(e.target.value)}
-                          className="text-[10px] font-mono border border-neutral-300 rounded px-1 py-0.5 outline-none"
-                          autoFocus
-                        />
-                        <button
-                          onClick={() => handleDateSave(m.id)}
-                          className="text-[10px] font-mono text-black hover:underline"
-                        >
-                          OK
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          setEditingId(m.id);
-                          setEditDate(m.targetDate || toISO(m.date));
-                        }}
-                        className="text-[10px] font-mono text-neutral-400 hover:text-black transition-colors"
-                      >
-                        {fmtDate(m.date)}
-                      </button>
-                    )}
-                    {m.owner && (
-                      <span className="text-[10px] font-mono text-neutral-300">
-                        {m.owner}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                {/* Connector line */}
-                <div className="w-px h-3 bg-neutral-300 mx-auto" />
-              </div>
-            ))}
+          <div className="absolute left-0 right-0 top-0" style={{ height: "190px" }}>
+            {above.map((m) => renderCard(m, "above"))}
           </div>
 
           {/* Timeline axis */}
-          <div className="absolute left-0 right-0" style={{ top: "192px" }}>
-            <div className="h-px bg-neutral-300 w-full relative">
+          <div className="absolute left-0 right-0" style={{ top: "200px" }}>
+            <div className={`h-px w-full relative transition-colors ${dragId ? "bg-black" : "bg-neutral-300"}`}>
               {/* Arrow */}
-              <div className="absolute right-0 -top-[4px] w-0 h-0 border-t-[5px] border-t-transparent border-b-[5px] border-b-transparent border-l-[8px] border-l-neutral-300" />
+              <div className={`absolute right-0 -top-[4px] w-0 h-0 border-t-[5px] border-t-transparent border-b-[5px] border-b-transparent border-l-[8px] ${dragId ? "border-l-black" : "border-l-neutral-300"}`} />
 
               {/* Date markers */}
               {markers.map((mk, i) => {
-                const dayOff =
-                  (mk.date.getTime() - startMs) / (1000 * 60 * 60 * 24);
+                const dayOff = (mk.date.getTime() - startMs) / (1000 * 60 * 60 * 24);
                 const pct = (dayOff / totalDays) * 100;
                 return (
-                  <div
-                    key={i}
-                    className="absolute"
-                    style={{ left: `${pct}%`, transform: "translateX(-50%)" }}
-                  >
+                  <div key={i} className="absolute" style={{ left: `${pct}%`, transform: "translateX(-50%)" }}>
                     <div className="w-px h-2 bg-neutral-300 -mt-1" />
-                    <span className="text-[10px] font-mono text-neutral-400 mt-1 block whitespace-nowrap">
-                      {mk.label}
-                    </span>
+                    <span className="text-[10px] font-mono text-neutral-400 mt-1 block whitespace-nowrap">{mk.label}</span>
                   </div>
                 );
               })}
 
-              {/* Milestone dots on the line */}
+              {/* Milestone dots */}
               {milestones.map((m) => (
                 <div
                   key={m.id}
-                  className="absolute w-2 h-2 rounded-full bg-black -mt-[3px]"
-                  style={{
-                    left: `${m.pct}%`,
-                    transform: "translateX(-50%)",
-                  }}
+                  className={`absolute w-2.5 h-2.5 rounded-full -mt-[4px] transition-colors ${
+                    m.status === "done" ? "bg-green-600" : m.status === "in_progress" ? "bg-blue-500" : "bg-black"
+                  }`}
+                  style={{ left: `${m.pct}%`, transform: "translateX(-50%)" }}
                 />
               ))}
             </div>
           </div>
 
           {/* Below-line milestones */}
-          <div
-            className="absolute left-0 right-0"
-            style={{ top: "216px", height: "180px" }}
-          >
-            {below.map((m) => (
-              <div
-                key={m.id}
-                className="absolute top-0 w-56"
-                style={{ left: `${m.pct}%`, transform: "translateX(-50%)" }}
-              >
-                {/* Connector line */}
-                <div className="w-px h-3 bg-neutral-300 mx-auto" />
-                <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-4 mt-0 hover:border-neutral-400 transition-colors">
-                  <h3 className="text-xs font-medium text-black leading-snug mb-1">
-                    {m.title}
-                  </h3>
-                  {m.description && (
-                    <p className="text-[10px] text-neutral-500 leading-relaxed line-clamp-2">
-                      {m.description}
-                    </p>
-                  )}
-                  <div className="flex items-center justify-between mt-2">
-                    {editingId === m.id ? (
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="date"
-                          value={editDate}
-                          onChange={(e) => setEditDate(e.target.value)}
-                          className="text-[10px] font-mono border border-neutral-300 rounded px-1 py-0.5 outline-none"
-                          autoFocus
-                        />
-                        <button
-                          onClick={() => handleDateSave(m.id)}
-                          className="text-[10px] font-mono text-black hover:underline"
-                        >
-                          OK
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          setEditingId(m.id);
-                          setEditDate(m.targetDate || toISO(m.date));
-                        }}
-                        className="text-[10px] font-mono text-neutral-400 hover:text-black transition-colors"
-                      >
-                        {fmtDate(m.date)}
-                      </button>
-                    )}
-                    {m.owner && (
-                      <span className="text-[10px] font-mono text-neutral-300">
-                        {m.owner}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
+          <div className="absolute left-0 right-0" style={{ top: "224px", height: "190px" }}>
+            {below.map((m) => renderCard(m, "below"))}
           </div>
+
+          {/* Drag hint */}
+          {dragId && (
+            <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+              <span className="text-xs font-mono text-neutral-300 bg-white/80 px-3 py-1 rounded">
+                Drop on timeline to reposition
+              </span>
+            </div>
+          )}
         </div>
       )}
 
       {/* Hint */}
       <p className="text-[10px] font-mono text-neutral-300 text-center mt-8">
-        Click a date to adjust &middot; Pin company goals with a target date to add milestones
+        Drag milestones to reposition &middot; Click date to adjust &middot; Hover for controls
       </p>
     </div>
   );
