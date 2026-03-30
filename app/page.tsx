@@ -20,8 +20,9 @@ export default function Home() {
   const [workstream, setWorkstream] = useState<WorkStream | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const dragIdRef = useRef<string | null>(null);
+  const authenticated = status === "authenticated";
   const { goals, loaded, addGoal, updateGoal, deleteGoal, reorderGoals, refreshGoals } =
-    useGoals(category);
+    useGoals(category, authenticated);
   const { messages, sendMessage: rawSendMessage, clearChat } = useChatMessages();
 
   const isMaster = session?.user?.email === MASTER_EMAIL;

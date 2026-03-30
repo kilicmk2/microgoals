@@ -18,9 +18,9 @@ const fetcher = async (url: string) => {
   return data;
 };
 
-export function useGoals(category: GoalCategory) {
+export function useGoals(category: GoalCategory, ready = true) {
   const { data, error, isLoading, mutate } = useSWR<Goal[]>(
-    `/api/goals?category=${category}`,
+    ready ? `/api/goals?category=${category}` : null,
     fetcher
   );
 
