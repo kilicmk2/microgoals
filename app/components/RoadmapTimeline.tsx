@@ -148,9 +148,60 @@ export default function RoadmapTimeline({ goals, category = "company", onUpdate,
     setDragging(false);
   }
 
-  function renderCard(m: LanedMilestone, position: "above" | "below") {
+  // Prevent drag from swallowing clicks on interactive elements
+  function stopDrag(e: React.MouseEvent) { e.stopPropagation(); }
+
+  function renderCardContent(m: LanedMilestone) {
     const statusCfg = STATUS_CONFIG[m.status as GoalStatus] || STATUS_CONFIG.not_started;
-    // Compute row within the band: lane 0,1 → row 0; lane 2,3 → row 1; etc.
+    return (
+      <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-3 hover:border-neutral-400 transition-colors cursor-grab active:cursor-grabbing">
+        <div className="flex items-center justify-between mb-1">
+          <span className={`text-[9px] font-mono uppercase ${statusCfg.color}`}>
+            {statusCfg.label}
+          </span>
+          {/* Controls — draggable=false so clicks work */}
+          <div className="flex gap-1" draggable={false} onMouseDown={stopDrag}>
+            <select
+              value={m.status}
+              onChange={(e) => onUpdate(m.id, { status: e.target.value as GoalStatus })}
+              className="text-[9px] font-mono bg-transparent border border-neutral-200 rounded px-0.5 outline-none cursor-pointer"
+            >
+              {(["not_started", "in_progress", "done", "blocked"] as GoalStatus[]).map((s) => (
+                <option key={s} value={s}>{STATUS_CONFIG[s].label}</option>
+              ))}
+            </select>
+            {confirmDeleteId === m.id ? (
+              <div className="flex gap-1">
+                <button onClick={() => { onDelete(m.id); setConfirmDeleteId(null); }} className="text-[10px] font-mono font-bold text-red-500 hover:text-red-700 px-1">Delete</button>
+                <button onClick={() => setConfirmDeleteId(null)} className="text-[10px] font-mono text-neutral-400 px-1">Cancel</button>
+              </div>
+            ) : (
+              <button onClick={() => setConfirmDeleteId(m.id)} className="text-[10px] font-mono text-neutral-400 hover:text-red-500 px-1">&times;</button>
+            )}
+          </div>
+        </div>
+        <h3 className="text-[11px] font-medium text-black leading-snug mb-0.5">{m.title}</h3>
+        {m.description && (
+          <p className="text-[10px] text-neutral-500 leading-relaxed line-clamp-2">{m.description}</p>
+        )}
+        <div className="flex items-center justify-between mt-1.5" draggable={false} onMouseDown={stopDrag}>
+          {editingId === m.id ? (
+            <div className="flex items-center gap-1">
+              <input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)}
+                className="text-[10px] font-mono border border-neutral-300 rounded px-1 py-0.5 outline-none" autoFocus />
+              <button onClick={() => handleDateSave(m.id)} className="text-[10px] font-mono text-black hover:underline">OK</button>
+            </div>
+          ) : (
+            <button onClick={() => { setEditingId(m.id); setEditDate(m.targetDate || toISO(m.date)); }}
+              className="text-[10px] font-mono text-neutral-400 hover:text-black transition-colors">{fmtDate(m.date)}</button>
+          )}
+          {m.owner && <span className="text-[9px] font-mono text-neutral-300">{m.owner}</span>}
+        </div>
+      </div>
+    );
+  }
+
+  function renderCard(m: LanedMilestone, position: "above" | "below") {
     const row = Math.floor(m.lane / 2);
     const offset = row * ROW_HEIGHT;
     return (
@@ -170,102 +221,15 @@ export default function RoadmapTimeline({ goals, category = "company", onUpdate,
         }}
         onDragEnd={() => setDragging(false)}
       >
-        {position === "above" && (
+        {position === "above" ? (
           <>
-            <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-3 mb-2 hover:border-neutral-400 transition-colors cursor-grab active:cursor-grabbing group/card">
-              <div className="flex items-center justify-between mb-1">
-                <span className={`text-[9px] font-mono uppercase ${statusCfg.color}`}>
-                  {statusCfg.label}
-                </span>
-                <div className="flex gap-1">
-                  <select
-                    value={m.status}
-                    onChange={(e) => onUpdate(m.id, { status: e.target.value as GoalStatus })}
-                    className="text-[9px] font-mono bg-transparent border border-neutral-200 rounded px-0.5 outline-none cursor-pointer"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {(["not_started", "in_progress", "done", "blocked"] as GoalStatus[]).map((s) => (
-                      <option key={s} value={s}>{STATUS_CONFIG[s].label}</option>
-                    ))}
-                  </select>
-                  {confirmDeleteId === m.id ? (
-                    <div className="flex gap-0.5">
-                      <button onClick={() => { onDelete(m.id); setConfirmDeleteId(null); }} className="text-[9px] font-mono text-red-500 hover:text-red-700">Yes</button>
-                      <button onClick={() => setConfirmDeleteId(null)} className="text-[9px] font-mono text-neutral-400">No</button>
-                    </div>
-                  ) : (
-                    <button onClick={() => setConfirmDeleteId(m.id)} className="text-[9px] font-mono text-neutral-300 hover:text-red-500">&times;</button>
-                  )}
-                </div>
-              </div>
-              <h3 className="text-[11px] font-medium text-black leading-snug mb-0.5">{m.title}</h3>
-              {m.description && (
-                <p className="text-[10px] text-neutral-500 leading-relaxed line-clamp-2">{m.description}</p>
-              )}
-              <div className="flex items-center justify-between mt-1.5">
-                {editingId === m.id ? (
-                  <div className="flex items-center gap-1">
-                    <input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)}
-                      className="text-[10px] font-mono border border-neutral-300 rounded px-1 py-0.5 outline-none" autoFocus />
-                    <button onClick={() => handleDateSave(m.id)} className="text-[10px] font-mono text-black hover:underline">OK</button>
-                  </div>
-                ) : (
-                  <button onClick={() => { setEditingId(m.id); setEditDate(m.targetDate || toISO(m.date)); }}
-                    className="text-[10px] font-mono text-neutral-400 hover:text-black transition-colors">{fmtDate(m.date)}</button>
-                )}
-                {m.owner && <span className="text-[9px] font-mono text-neutral-300">{m.owner}</span>}
-              </div>
-            </div>
-            <div className="w-px h-3 bg-neutral-300 mx-auto" />
+            {renderCardContent(m)}
+            <div className="w-px h-3 bg-neutral-300 mx-auto mt-2" />
           </>
-        )}
-        {position === "below" && (
+        ) : (
           <>
-            <div className="w-px h-3 bg-neutral-300 mx-auto" />
-            <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-3 hover:border-neutral-400 transition-colors cursor-grab active:cursor-grabbing group/card">
-              <div className="flex items-center justify-between mb-1">
-                <span className={`text-[9px] font-mono uppercase ${statusCfg.color}`}>
-                  {statusCfg.label}
-                </span>
-                <div className="flex gap-1">
-                  <select
-                    value={m.status}
-                    onChange={(e) => onUpdate(m.id, { status: e.target.value as GoalStatus })}
-                    className="text-[9px] font-mono bg-transparent border border-neutral-200 rounded px-0.5 outline-none cursor-pointer"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {(["not_started", "in_progress", "done", "blocked"] as GoalStatus[]).map((s) => (
-                      <option key={s} value={s}>{STATUS_CONFIG[s].label}</option>
-                    ))}
-                  </select>
-                  {confirmDeleteId === m.id ? (
-                    <div className="flex gap-0.5">
-                      <button onClick={() => { onDelete(m.id); setConfirmDeleteId(null); }} className="text-[9px] font-mono text-red-500 hover:text-red-700">Yes</button>
-                      <button onClick={() => setConfirmDeleteId(null)} className="text-[9px] font-mono text-neutral-400">No</button>
-                    </div>
-                  ) : (
-                    <button onClick={() => setConfirmDeleteId(m.id)} className="text-[9px] font-mono text-neutral-300 hover:text-red-500">&times;</button>
-                  )}
-                </div>
-              </div>
-              <h3 className="text-[11px] font-medium text-black leading-snug mb-0.5">{m.title}</h3>
-              {m.description && (
-                <p className="text-[10px] text-neutral-500 leading-relaxed line-clamp-2">{m.description}</p>
-              )}
-              <div className="flex items-center justify-between mt-1.5">
-                {editingId === m.id ? (
-                  <div className="flex items-center gap-1">
-                    <input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)}
-                      className="text-[10px] font-mono border border-neutral-300 rounded px-1 py-0.5 outline-none" autoFocus />
-                    <button onClick={() => handleDateSave(m.id)} className="text-[10px] font-mono text-black hover:underline">OK</button>
-                  </div>
-                ) : (
-                  <button onClick={() => { setEditingId(m.id); setEditDate(m.targetDate || toISO(m.date)); }}
-                    className="text-[10px] font-mono text-neutral-400 hover:text-black transition-colors">{fmtDate(m.date)}</button>
-                )}
-                {m.owner && <span className="text-[9px] font-mono text-neutral-300">{m.owner}</span>}
-              </div>
-            </div>
+            <div className="w-px h-3 bg-neutral-300 mx-auto mb-2" />
+            {renderCardContent(m)}
           </>
         )}
       </div>

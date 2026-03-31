@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const needsApproval = body.category === "company" && !isMaster;
+    const needsApproval = body.category === "company" && !isMaster && !isExecutive;
 
     const [created] = await getDb()
       .insert(goals)
