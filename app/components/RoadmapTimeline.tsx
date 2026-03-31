@@ -69,8 +69,42 @@ export default function RoadmapTimeline({ goals, category = "company", onUpdate,
     })
     .sort((a, b) => a.date.getTime() - b.date.getTime());
 
-  const above = milestones.filter((_, i) => i % 2 === 0);
-  const below = milestones.filter((_, i) => i % 2 === 1);
+  // Distribute milestones into lanes so overlapping cards stack cleanly
+  // Cards are ~210px wide on a container that's ~1100px, so ~19% of width
+  const OVERLAP_THRESHOLD = 15; // pct — cards closer than this would overlap
+  type LanedMilestone = typeof milestones[number] & { lane: number };
+
+  const laned: LanedMilestone[] = [];
+  const lanes: number[][] = []; // lanes[i] = array of pct positions in that lane
+
+  for (const m of milestones) {
+    let placed = false;
+    for (let li = 0; li < lanes.length; li++) {
+      const fits = lanes[li].every((p) => Math.abs(p - m.pct) >= OVERLAP_THRESHOLD);
+      if (fits) {
+        lanes[li].push(m.pct);
+        laned.push({ ...m, lane: li });
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      lanes.push([m.pct]);
+      laned.push({ ...m, lane: lanes.length - 1 });
+    }
+  }
+
+  // Even lanes go above the axis, odd lanes go below
+  const above = laned.filter((m) => m.lane % 2 === 0);
+  const below = laned.filter((m) => m.lane % 2 === 1);
+
+  // How many rows above / below so we can size the container
+  const aboveLanes = Math.max(1, ...above.map((m) => Math.floor(m.lane / 2) + 1), 1);
+  const belowLanes = Math.max(1, ...below.map((m) => Math.floor(m.lane / 2) + 1), 1);
+  const ROW_HEIGHT = 140; // px per lane row
+  const AXIS_GAP = 30; // px gap around axis
+  const totalHeight = aboveLanes * ROW_HEIGHT + belowLanes * ROW_HEIGHT + AXIS_GAP * 2 + 20;
+  const axisTop = aboveLanes * ROW_HEIGHT + AXIS_GAP;
 
   function handleDateSave(goalId: string) {
     if (editDate) {
@@ -114,13 +148,20 @@ export default function RoadmapTimeline({ goals, category = "company", onUpdate,
     setDragging(false);
   }
 
-  function renderCard(m: typeof milestones[number], position: "above" | "below") {
+  function renderCard(m: LanedMilestone, position: "above" | "below") {
     const statusCfg = STATUS_CONFIG[m.status as GoalStatus] || STATUS_CONFIG.not_started;
+    // Compute row within the band: lane 0,1 → row 0; lane 2,3 → row 1; etc.
+    const row = Math.floor(m.lane / 2);
+    const offset = row * ROW_HEIGHT;
     return (
       <div
         key={m.id}
-        className={`absolute w-52 ${position === "above" ? "bottom-0" : "top-0"}`}
-        style={{ left: `${m.pct}%`, transform: "translateX(-50%)" }}
+        className="absolute w-52"
+        style={{
+          left: `${m.pct}%`,
+          transform: "translateX(-50%)",
+          ...(position === "above" ? { bottom: `${offset}px` } : { top: `${offset}px` }),
+        }}
         draggable
         onDragStart={(e) => {
           e.dataTransfer.setData("text/plain", m.id);
@@ -302,17 +343,17 @@ export default function RoadmapTimeline({ goals, category = "company", onUpdate,
       ) : milestones.length > 0 && (
         <div
           className="relative"
-          style={{ height: "440px" }}
+          style={{ height: `${totalHeight}px` }}
           onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
           onDrop={handleTimelineDrop}
         >
           {/* Above-line milestones */}
-          <div className="absolute left-0 right-0 top-0" style={{ height: "190px" }}>
+          <div className="absolute left-0 right-0 top-0" style={{ height: `${axisTop}px` }}>
             {above.map((m) => renderCard(m, "above"))}
           </div>
 
           {/* Timeline axis */}
-          <div className="absolute left-0 right-0" style={{ top: "200px" }}>
+          <div className="absolute left-0 right-0" style={{ top: `${axisTop}px` }}>
             <div className={`h-px w-full relative transition-colors ${dragging ? "bg-black" : "bg-neutral-300"}`}>
               {/* Arrow */}
               <div className={`absolute right-0 -top-[4px] w-0 h-0 border-t-[5px] border-t-transparent border-b-[5px] border-b-transparent border-l-[8px] ${dragging ? "border-l-black" : "border-l-neutral-300"}`} />
@@ -343,7 +384,7 @@ export default function RoadmapTimeline({ goals, category = "company", onUpdate,
           </div>
 
           {/* Below-line milestones */}
-          <div className="absolute left-0 right-0" style={{ top: "224px", height: "190px" }}>
+          <div className="absolute left-0 right-0" style={{ top: `${axisTop + AXIS_GAP}px`, height: `${belowLanes * ROW_HEIGHT}px` }}>
             {below.map((m) => renderCard(m, "below"))}
           </div>
 
