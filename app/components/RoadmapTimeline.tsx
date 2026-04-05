@@ -73,7 +73,7 @@ export default function RoadmapTimeline({ goals, category = "company", onUpdate,
     .sort((a, b) => a.date.getTime() - b.date.getTime());
 
   // Lane packing — collapsed cards are ~180px on ~1100px container = ~16%
-  const OVERLAP_THRESHOLD = 14;
+  const OVERLAP_THRESHOLD = 12;
   type LanedMilestone = typeof milestones[number] & { lane: number };
   const laned: LanedMilestone[] = [];
   const laneSlots: number[][] = [];
@@ -99,14 +99,13 @@ export default function RoadmapTimeline({ goals, category = "company", onUpdate,
   const aboveRows = Math.max(1, ...above.map((m) => Math.floor(m.lane / 2) + 1));
   const belowRows = Math.max(1, ...below.map((m) => Math.floor(m.lane / 2) + 1));
 
-  // Collapsed card = ~50px, expanded = ~180px
-  const COLLAPSED_ROW = 56;
+  const COLLAPSED_ROW = 40;
   const EXPANDED_EXTRA = 140;
   const expandedAbove = expandedId && above.some((m) => m.id === expandedId);
   const expandedBelow = expandedId && below.some((m) => m.id === expandedId);
   const aboveHeight = aboveRows * COLLAPSED_ROW + (expandedAbove ? EXPANDED_EXTRA : 0);
   const belowHeight = belowRows * COLLAPSED_ROW + (expandedBelow ? EXPANDED_EXTRA : 0);
-  const AXIS_GAP = 24;
+  const AXIS_GAP = 16;
   const totalHeight = aboveHeight + belowHeight + AXIS_GAP * 2 + 10;
   const axisTop = aboveHeight + AXIS_GAP;
 
@@ -153,7 +152,7 @@ export default function RoadmapTimeline({ goals, category = "company", onUpdate,
     return (
       <div
         key={m.id}
-        className="absolute w-44"
+        className="absolute w-40"
         style={{
           left: `${m.pct}%`,
           transform: "translateX(-50%)",
@@ -168,15 +167,15 @@ export default function RoadmapTimeline({ goals, category = "company", onUpdate,
         }}
         onDragEnd={() => setDragging(false)}
       >
-        {position === "above" && <div className="w-px h-2 bg-neutral-300 mx-auto mb-1" />}
-        {position === "below" && <div className="w-px h-2 bg-neutral-300 mx-auto mb-1" />}
+        {position === "above" && <div className="w-px h-1.5 bg-neutral-200 mx-auto" />}
+        {position === "below" && <div className="w-px h-1.5 bg-neutral-200 mx-auto" />}
 
         {/* Card */}
         <div
           className={`border rounded-lg transition-all cursor-pointer ${
             isExpanded
-              ? "bg-white border-black shadow-sm p-3"
-              : "bg-neutral-50 border-neutral-200 hover:border-neutral-400 px-2.5 py-1.5"
+              ? "bg-white border-black shadow-sm p-2.5"
+              : "bg-neutral-50 border-neutral-200 hover:border-neutral-400 px-2 py-1"
           }`}
           onClick={() => !isEditing && setExpandedId(isExpanded ? null : m.id)}
         >
