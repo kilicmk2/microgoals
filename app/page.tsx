@@ -208,7 +208,7 @@ export default function Home() {
 
       {/* Roadmap landing */}
       {category === null && (
-        <RoadmapTimeline goals={goals} onUpdate={updateGoal} onDelete={deleteGoal} onAdd={addGoal} />
+        <RoadmapTimeline goals={goals} isMaster={isMaster} onUpdate={updateGoal} onDelete={deleteGoal} onAdd={addGoal} />
       )}
 
       {/* Work stream filter (executive only) */}
