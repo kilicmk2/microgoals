@@ -135,8 +135,21 @@ export default function RoadmapTimeline({ goals, category = "company", onUpdate,
     if (!goalId) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const d = new Date(startMs + pct * totalDays * 86400000);
-    onUpdate(goalId, { targetDate: toISO(d) });
+    const rawDate = new Date(startMs + pct * totalDays * 86400000);
+
+    // Snap to existing milestone dates if within 3% of timeline width
+    const SNAP_THRESHOLD = 3; // percent
+    const rawPct = pct * 100;
+    let snapDate = rawDate;
+    for (const m of milestones) {
+      if (m.id === goalId) continue;
+      if (Math.abs(m.pct - rawPct) < SNAP_THRESHOLD) {
+        snapDate = m.date;
+        break;
+      }
+    }
+
+    onUpdate(goalId, { targetDate: toISO(snapDate) });
     setDragging(false);
   }
 
