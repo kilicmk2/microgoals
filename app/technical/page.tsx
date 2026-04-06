@@ -44,7 +44,8 @@ export default function TechnicalPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showLog, setShowLog] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [tool, setTool] = useState<"select" | "draw" | "eraser">("select");
+  const [tool, setTool] = useState<"select" | "draw" | "eraser" | "arrow">("select");
+  const [arrowFrom, setArrowFrom] = useState<string | null>(null);
 
   const [editTitle, setEditTitle] = useState("");
   const [editDesc, setEditDesc] = useState("");
@@ -186,12 +187,15 @@ export default function TechnicalPage() {
     if (tool === "eraser") {
       isErasing.current = true;
       erasedIds.current = new Set();
-      // Immediately erase anything under cursor
+      // Erase strokes under cursor
       const hits = strokesNearPoint(pt.x, pt.y);
       if (hits.length) {
         hits.forEach((id) => { erasedIds.current.add(id); deleteStroke(id); });
         mutateStrokes(strokes.filter((s) => !hits.includes(s.id)), false);
       }
+      // Also erase arrows under cursor
+      const arrowHit = arrowNearPoint(pt.x, pt.y);
+      if (arrowHit) deleteArrow(arrowHit.fromId, arrowHit.toId);
       return;
     }
 
@@ -219,7 +223,7 @@ export default function TechnicalPage() {
   }
 
   function handleMouseMove(e: React.MouseEvent) {
-    // Eraser: continuously erase strokes under cursor
+    // Eraser: continuously erase strokes + arrows under cursor
     if (isErasing.current) {
       const pt = toCanvas(e.clientX, e.clientY);
       const hits = strokesNearPoint(pt.x, pt.y);
@@ -227,6 +231,8 @@ export default function TechnicalPage() {
         hits.forEach((id) => { erasedIds.current.add(id); deleteStroke(id); });
         mutateStrokes(strokes.filter((s) => !hits.includes(s.id) && !erasedIds.current.has(s.id)), false);
       }
+      const arrowHit = arrowNearPoint(pt.x, pt.y);
+      if (arrowHit) deleteArrow(arrowHit.fromId, arrowHit.toId);
       return;
     }
 
@@ -302,6 +308,23 @@ export default function TechnicalPage() {
   function handleNodeMouseDown(e: React.MouseEvent, nodeId: string) {
     e.stopPropagation();
     if (tool === "eraser") return;
+
+    // Arrow tool: click source then target
+    if (tool === "arrow") {
+      if (!arrowFrom) {
+        setArrowFrom(nodeId);
+        setSelectedId(nodeId);
+      } else if (arrowFrom !== nodeId) {
+        const from = nodes.find((n) => n.id === arrowFrom);
+        if (from && !from.connectedTo.includes(nodeId)) {
+          updateNode(arrowFrom, { connectedTo: [...from.connectedTo, nodeId] });
+        }
+        setArrowFrom(null);
+        setSelectedId(null);
+      }
+      return;
+    }
+
     const node = nodes.find((n) => n.id === nodeId);
     if (!node) return;
     draggingNode.current = nodeId;
@@ -318,12 +341,42 @@ export default function TechnicalPage() {
   }
 
   // Arrows
-  const arrows: { from: CanvasNode; to: CanvasNode }[] = [];
+  const arrows: { from: CanvasNode; to: CanvasNode; key: string }[] = [];
   for (const n of nodes) {
     for (const tid of n.connectedTo) {
       const t = nodes.find((x) => x.id === tid);
-      if (t) arrows.push({ from: n, to: t });
+      if (t) arrows.push({ from: n, to: t, key: `${n.id}-${tid}` });
     }
+  }
+
+  // Delete an arrow connection
+  function deleteArrow(fromId: string, toId: string) {
+    const from = nodes.find((n) => n.id === fromId);
+    if (from) {
+      updateNode(fromId, { connectedTo: from.connectedTo.filter((c) => c !== toId) });
+    }
+  }
+
+  // Check if a point is near any arrow (for eraser)
+  function arrowNearPoint(cx: number, cy: number): { fromId: string; toId: string } | null {
+    const R = 20;
+    for (const { from, to } of arrows) {
+      const x1 = from.x + CARD_W / 2;
+      const y1 = from.y + CARD_H / 2;
+      const x2 = to.x + CARD_W / 2;
+      const y2 = to.y + CARD_H / 2;
+      // Check distance to line segment
+      const steps = 20;
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const px = x1 + (x2 - x1) * t;
+        const py = y1 + (y2 - y1) * t;
+        if ((px - cx) ** 2 + (py - cy) ** 2 < R * R) {
+          return { fromId: from.id, toId: to.id };
+        }
+      }
+    }
+    return null;
   }
 
   // Log
@@ -353,7 +406,7 @@ export default function TechnicalPage() {
     return d;
   }
 
-  const cursorStyle = tool === "eraser" ? ERASER_CURSOR : tool === "draw" ? "crosshair" : undefined;
+  const cursorStyle = tool === "eraser" ? ERASER_CURSOR : tool === "draw" ? "crosshair" : tool === "arrow" ? "crosshair" : undefined;
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
@@ -368,13 +421,23 @@ export default function TechnicalPage() {
           </div>
           <div className="flex items-center gap-3">
             <div className="flex border border-neutral-200 rounded overflow-hidden">
-              {(["select", "draw", "eraser"] as const).map((t) => (
-                <button key={t} onClick={() => setTool(t)}
-                  className={`text-[10px] font-mono px-3 py-1 transition-colors capitalize ${
+              {([
+                { key: "select" as const, label: "Select", icon: "↖" },
+                { key: "arrow" as const, label: arrowFrom ? "Click target..." : "Arrow", icon: "→" },
+                { key: "draw" as const, label: "Draw", icon: "✎" },
+                { key: "eraser" as const, label: "Eraser", icon: "◯" },
+              ]).map(({ key: t, label, icon }) => (
+                <button key={t} onClick={() => { setTool(t); if (t !== "arrow") setArrowFrom(null); }}
+                  className={`text-[10px] font-mono px-2.5 py-1 transition-colors flex items-center gap-1 ${
                     tool === t
-                      ? t === "eraser" ? "bg-red-500 text-white" : "bg-black text-white"
+                      ? t === "eraser" ? "bg-red-500 text-white"
+                      : t === "arrow" && arrowFrom ? "bg-blue-500 text-white"
+                      : "bg-black text-white"
                       : "bg-transparent text-neutral-500 hover:bg-neutral-50"
-                  }`}>{t}</button>
+                  }`}>
+                  <span className="text-[11px]">{icon}</span>
+                  <span>{label}</span>
+                </button>
               ))}
             </div>
             <button onClick={() => setShowLog(!showLog)}
@@ -424,14 +487,14 @@ export default function TechnicalPage() {
 
           {/* Transform */}
           <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: "0 0" }}>
-            <svg className="absolute" style={{ width: "10000px", height: "10000px", pointerEvents: "none" }}>
+            <svg className="absolute" style={{ width: "10000px", height: "10000px" }}>
               <defs>
                 <marker id="canvas-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
                   <polygon points="0 0, 8 3, 0 6" fill="#9ca3af" />
                 </marker>
               </defs>
-              {/* Arrows */}
-              {arrows.map(({ from, to }) => {
+              {/* Arrows — with invisible fat click target */}
+              {arrows.map(({ from, to, key }) => {
                 const x1 = from.x + CARD_W / 2;
                 const y1 = from.y + CARD_H / 2;
                 const x2 = to.x + CARD_W / 2;
@@ -440,11 +503,17 @@ export default function TechnicalPage() {
                 const dy = y2 - y1;
                 const cx = (x1 + x2) / 2 - dy * 0.15;
                 const cy = (y1 + y2) / 2 + dx * 0.15;
+                const pathD = `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`;
                 return (
-                  <path key={`${from.id}-${to.id}`}
-                    d={`M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`}
-                    fill="none" stroke="#b0b0b0" strokeWidth={1.5}
-                    markerEnd="url(#canvas-arrow)" />
+                  <g key={key}>
+                    {/* Invisible fat click target */}
+                    <path d={pathD} fill="none" stroke="transparent" strokeWidth={16}
+                      style={{ cursor: "pointer", pointerEvents: "stroke" }}
+                      onClick={(e) => { e.stopPropagation(); deleteArrow(from.id, to.id); }} />
+                    {/* Visible arrow */}
+                    <path d={pathD} fill="none" stroke="#b0b0b0" strokeWidth={1.5}
+                      markerEnd="url(#canvas-arrow)" style={{ pointerEvents: "none" }} />
+                  </g>
                 );
               })}
               {/* Saved strokes */}
@@ -470,7 +539,9 @@ export default function TechnicalPage() {
                   style={{ left: node.x, top: node.y, width: CARD_W, zIndex: sel ? 20 : 1 }}
                   onMouseDown={(e) => handleNodeMouseDown(e, node.id)}>
                   <div className={`border rounded-lg transition-all ${
-                    sel ? "bg-white border-black shadow-md" : "bg-white border-neutral-200 hover:border-neutral-400 shadow-sm"
+                    arrowFrom === node.id ? "bg-blue-50 border-blue-400 shadow-md ring-2 ring-blue-200"
+                    : sel ? "bg-white border-black shadow-md"
+                    : "bg-white border-neutral-200 hover:border-neutral-400 shadow-sm"
                   }`}>
                     {editing ? (
                       <div className="p-3 space-y-2" onMouseDown={(e) => e.stopPropagation()}>
