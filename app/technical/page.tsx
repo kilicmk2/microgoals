@@ -95,24 +95,18 @@ export default function TechnicalPage() {
     const wheelHandler = (e: WheelEvent) => { e.preventDefault(); };
     el.addEventListener("wheel", wheelHandler, { passive: false });
 
-    // Rapid click reset: 4 clicks on empty canvas within 1.5s resets view
-    const clicks: number[] = [];
-    const clickHandler = (e: MouseEvent) => {
-      if ((e.target as HTMLElement).closest("[data-card]")) return;
-      const now = Date.now();
-      while (clicks.length > 0 && now - clicks[0] > 1500) clicks.shift();
-      clicks.push(now);
-      if (clicks.length >= 4) {
-        clicks.length = 0;
+    // Press Escape to reset view
+    const keyHandler = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !(e.target as HTMLElement).closest("input,textarea,select")) {
         setZoom(1);
         setPan({ x: 50, y: 50 });
       }
     };
-    el.addEventListener("click", clickHandler);
+    document.addEventListener("keydown", keyHandler);
 
     return () => {
       el.removeEventListener("wheel", wheelHandler);
-      el.removeEventListener("click", clickHandler);
+      document.removeEventListener("keydown", keyHandler);
     };
   }, []);
 
@@ -458,20 +452,14 @@ export default function TechnicalPage() {
               <button onClick={() => setZoom((z) => Math.min(4, z * 1.25))} className="text-[10px] font-mono px-1.5 py-0.5 text-neutral-500 hover:bg-neutral-50">+</button>
             </div>
             <button onClick={() => {
-              if (nodes.length === 0) { setZoom(1); setPan({ x: 50, y: 50 }); return; }
-              // Fit all nodes in view
+              // Reset: fit to timeline width
               const rect = canvasRef.current?.getBoundingClientRect();
-              if (!rect) return;
-              const minX = Math.min(...nodes.map((n) => n.x));
-              const minY = Math.min(...nodes.map((n) => n.y));
-              const maxX = Math.max(...nodes.map((n) => n.x + CARD_W));
-              const maxY = Math.max(...nodes.map((n) => n.y + CARD_H));
-              const contentW = maxX - minX + 100;
-              const contentH = maxY - minY + 100;
-              const newZoom = Math.min(rect.width / contentW, rect.height / contentH, 2);
-              setZoom(Math.max(0.3, newZoom * 0.9));
-              setPan({ x: -minX * newZoom * 0.9 + 50, y: -minY * newZoom * 0.9 + 50 });
-            }} className="text-[10px] font-mono text-neutral-400 hover:text-black">Fit</button>
+              if (!rect) { setZoom(1); setPan({ x: 50, y: 50 }); return; }
+              const tlWidth = timelineWeeks * 120;
+              const fitZoom = Math.min((rect.width - 100) / tlWidth, 2);
+              setZoom(Math.max(0.2, fitZoom));
+              setPan({ x: 50, y: 50 });
+            }} className="text-[10px] font-mono text-neutral-400 hover:text-black px-1" title="Reset view to fit timeline (Esc)">Reset</button>
             <div className="relative ml-1">
               <button onClick={() => { setShowNotifs(!showNotifs); if (!showNotifs) markNotifRead("all"); }}
                 className="text-[10px] font-mono text-neutral-400 hover:text-black relative px-1.5 py-0.5 border border-neutral-200 rounded">
