@@ -56,7 +56,7 @@ export default function TechnicalPage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [tool, setTool] = useState<"select" | "draw" | "eraser" | "arrow">("select");
   const [arrowFrom, setArrowFrom] = useState<string | null>(null);
-  const [showTimeline, setShowTimeline] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(true);
   const [timelineWeeks, setTimelineWeeks] = useState(12);
 
   const [editTitle, setEditTitle] = useState("");
@@ -404,7 +404,18 @@ export default function TechnicalPage() {
             <button onClick={() => setShowTimeline(!showTimeline)}
               className={`text-[10px] font-mono px-2.5 py-1 rounded border transition-colors ${showTimeline ? "bg-black text-white border-black" : "bg-transparent text-neutral-500 border-neutral-200 hover:border-black"}`}>Timeline</button>
             {showTimeline && (
-              <select value={timelineWeeks} onChange={(e) => setTimelineWeeks(parseInt(e.target.value))}
+              <select value={timelineWeeks} onChange={(e) => {
+                const weeks = parseInt(e.target.value);
+                setTimelineWeeks(weeks);
+                // Adjust zoom to fit the new timeline width
+                const rect = canvasRef.current?.getBoundingClientRect();
+                if (rect) {
+                  const timelineWidth = weeks * 120;
+                  const fitZoom = Math.min((rect.width - 100) / timelineWidth, 2);
+                  setZoom(Math.max(0.2, fitZoom));
+                  setPan({ x: 50, y: 50 });
+                }
+              }}
                 className="text-[10px] font-mono border border-neutral-200 rounded px-1.5 py-0.5 outline-none">
                 <option value="4">4w</option><option value="8">8w</option><option value="12">12w</option><option value="26">6m</option><option value="52">1y</option>
               </select>
@@ -412,8 +423,26 @@ export default function TechnicalPage() {
             <span className="text-neutral-200">|</span>
             <button onClick={() => setShowLog(!showLog)}
               className={`text-[10px] font-mono px-2.5 py-1 rounded border transition-colors ${showLog ? "bg-black text-white border-black" : "bg-transparent text-neutral-500 border-neutral-200 hover:border-black"}`}>Log</button>
-            <span className="text-[10px] font-mono text-neutral-400">{Math.round(zoom * 100)}%</span>
-            <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} className="text-[10px] font-mono text-neutral-400 hover:text-black">Reset</button>
+            <div className="flex items-center border border-neutral-200 rounded overflow-hidden">
+              <button onClick={() => setZoom((z) => Math.max(0.2, z * 0.8))} className="text-[10px] font-mono px-1.5 py-0.5 text-neutral-500 hover:bg-neutral-50">−</button>
+              <span className="text-[10px] font-mono text-neutral-400 px-1 border-x border-neutral-200">{Math.round(zoom * 100)}%</span>
+              <button onClick={() => setZoom((z) => Math.min(4, z * 1.25))} className="text-[10px] font-mono px-1.5 py-0.5 text-neutral-500 hover:bg-neutral-50">+</button>
+            </div>
+            <button onClick={() => {
+              if (nodes.length === 0) { setZoom(1); setPan({ x: 50, y: 50 }); return; }
+              // Fit all nodes in view
+              const rect = canvasRef.current?.getBoundingClientRect();
+              if (!rect) return;
+              const minX = Math.min(...nodes.map((n) => n.x));
+              const minY = Math.min(...nodes.map((n) => n.y));
+              const maxX = Math.max(...nodes.map((n) => n.x + CARD_W));
+              const maxY = Math.max(...nodes.map((n) => n.y + CARD_H));
+              const contentW = maxX - minX + 100;
+              const contentH = maxY - minY + 100;
+              const newZoom = Math.min(rect.width / contentW, rect.height / contentH, 2);
+              setZoom(Math.max(0.3, newZoom * 0.9));
+              setPan({ x: -minX * newZoom * 0.9 + 50, y: -minY * newZoom * 0.9 + 50 });
+            }} className="text-[10px] font-mono text-neutral-400 hover:text-black">Fit</button>
             <div className="relative ml-1">
               <button onClick={() => { setShowNotifs(!showNotifs); if (!showNotifs) markNotifRead("all"); }}
                 className="text-[10px] font-mono text-neutral-400 hover:text-black relative px-1.5 py-0.5 border border-neutral-200 rounded">
@@ -450,32 +479,45 @@ export default function TechnicalPage() {
           onMouseLeave={() => { isPanning.current = false; if (isErasing.current) { isErasing.current = false; flushErase(); } if (isDrawing.current) { isDrawing.current = false; setCurrentStroke([]); }
             if (draggingNode.current) { const n = nodes.find((x) => x.id === draggingNode.current); if (n) updateNode(draggingNode.current, { x: n.x, y: n.y }); draggingNode.current = null; } }}
           onDoubleClick={handleDoubleClick}
-          onWheel={(e) => { e.preventDefault(); setZoom((z) => Math.max(0.3, Math.min(3, z * (e.deltaY > 0 ? 0.9 : 1.1)))); }}>
+          onWheel={(e) => {
+            e.preventDefault();
+            const rect = canvasRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            const factor = e.deltaY > 0 ? 0.9 : 1.1;
+            const newZoom = Math.max(0.2, Math.min(4, zoom * factor));
+            // Zoom toward cursor
+            const mx = e.clientX - rect.left;
+            const my = e.clientY - rect.top;
+            const newPanX = mx - (mx - pan.x) * (newZoom / zoom);
+            const newPanY = my - (my - pan.y) * (newZoom / zoom);
+            setZoom(newZoom);
+            setPan({ x: newPanX, y: newPanY });
+          }}>
 
           <div className="absolute inset-0 pointer-events-none" style={{
             backgroundImage: "radial-gradient(circle, #e5e5e5 1px, transparent 1px)",
             backgroundSize: `${30 * zoom}px ${30 * zoom}px`, backgroundPosition: `${pan.x}px ${pan.y}px`,
           }} />
 
-          {showTimeline && (
-            <div className="absolute left-0 right-0 pointer-events-none" style={{ top: `${pan.y + 40 * zoom}px`, zIndex: 5 }}>
-              <div className="h-px bg-neutral-300 mx-8" style={{ opacity: 0.5 }} />
-              {Array.from({ length: timelineWeeks + 1 }).map((_, i) => {
-                const d = new Date(timelineStart.getTime() + i * 7 * 86400000);
-                const pct = (i / timelineWeeks) * 100;
-                return (
-                  <div key={i} className="absolute" style={{ left: `${Math.max(2, Math.min(98, pct))}%`, top: "-8px" }}>
-                    <div className="w-px h-4 bg-neutral-300" style={{ opacity: 0.5 }} />
-                    <span className="text-[8px] font-mono text-neutral-400 block mt-1 whitespace-nowrap" style={{ opacity: 0.7 }}>
-                      {d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
           <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: "0 0" }}>
+            {/* Timeline — inside transform so it pans/zooms with content */}
+            {showTimeline && (
+              <div className="absolute pointer-events-none" style={{ left: 0, top: 20, width: `${timelineWeeks * 120}px`, zIndex: 5 }}>
+                <div className="h-px bg-neutral-300 w-full" style={{ opacity: 0.4 }} />
+                {Array.from({ length: timelineWeeks + 1 }).map((_, i) => {
+                  const d = new Date(timelineStart.getTime() + i * 7 * 86400000);
+                  const x = i * 120;
+                  return (
+                    <div key={i} className="absolute" style={{ left: x, top: -6 }}>
+                      <div className="w-px h-3 bg-neutral-300" style={{ opacity: 0.4 }} />
+                      <span className="text-[9px] font-mono text-neutral-400 block mt-1 whitespace-nowrap" style={{ opacity: 0.6 }}>
+                        {d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             <svg className="absolute" style={{ width: "10000px", height: "10000px" }}>
               <defs>
                 <marker id="canvas-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
