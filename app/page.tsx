@@ -32,9 +32,8 @@ export default function Home() {
 
   const sendMessage = useCallback(async (content: string) => {
     const result = await rawSendMessage(content);
-    if ((result.createdGoals?.length ?? 0) > 0) {
-      refreshGoals();
-    }
+    // AI may have created goals via tool calls — refresh
+    refreshGoals();
     return result;
   }, [rawSendMessage, refreshGoals]);
 
@@ -291,6 +290,7 @@ export default function Home() {
         initialMessages={messages}
         onSendMessage={sendMessage}
         onClearChat={clearChat}
+        page="home"
       />
     </div>
   );

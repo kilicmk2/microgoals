@@ -116,18 +116,18 @@ interface ChatMsg {
   content: string;
 }
 
-export function useChatMessages() {
+export function useChatMessages(page = "home") {
   const { data, mutate } = useSWR<ChatMsg[]>("/api/chat/history", fetcher);
 
   const messages = useMemo(() => data ?? [], [data]);
 
   const sendMessage = useCallback(
-    async (content: string): Promise<{ reply?: string; error?: string; createdGoals?: string[] }> => {
+    async (content: string): Promise<{ reply?: string; error?: string }> => {
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: content }),
+          body: JSON.stringify({ message: content, page }),
         });
         const result = await res.json();
         mutate();
@@ -136,7 +136,7 @@ export function useChatMessages() {
         return { error: String(e) };
       }
     },
-    [mutate]
+    [mutate, page]
   );
 
   const clearChat = useCallback(async () => {

@@ -5,6 +5,8 @@ import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { CanvasNode, GoalStatus, STATUS_CONFIG, TECHNICAL_ADMINS } from "../lib/store";
+import { useChatMessages } from "../lib/hooks";
+import ChatBubble from "../components/ChatBubble";
 import Logo from "../components/Logo";
 import Link from "next/link";
 
@@ -45,6 +47,14 @@ export default function TechnicalPage() {
   const { data: strokes = [], mutate: mutateStrokes } = useSWR<Stroke[]>(authenticated ? "/api/canvas/strokes" : null, fetcher);
   const { data: team = [] } = useSWR<string[]>(authenticated ? "/api/team" : null, fetcher);
   const { data: notifs = [], mutate: mutateNotifs } = useSWR<Notification[]>(authenticated ? "/api/notifications" : null, fetcher);
+
+  const { messages: chatMessages, sendMessage: chatSend, clearChat } = useChatMessages("technical");
+
+  const chatSendMessage = useCallback(async (content: string) => {
+    const result = await chatSend(content);
+    mutateNodes(); // refresh canvas after AI might create tasks
+    return result;
+  }, [chatSend, mutateNodes]);
 
   const isAdmin = TECHNICAL_ADMINS.includes(session?.user?.email ?? "");
   const unreadCount = notifs.filter((n) => !n.read).length;
@@ -686,6 +696,14 @@ export default function TechnicalPage() {
           </div>
         )}
       </div>
+
+      {/* Chat */}
+      <ChatBubble
+        initialMessages={chatMessages}
+        onSendMessage={chatSendMessage}
+        onClearChat={clearChat}
+        page="technical"
+      />
     </div>
   );
 }
