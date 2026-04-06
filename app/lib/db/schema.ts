@@ -111,6 +111,18 @@ export const canvasStrokes = pgTable("canvas_strokes", {
   createdAt: timestamp("createdAt", { mode: "date" }).defaultNow(),
 });
 
+export const notifications = pgTable("notifications", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: text("userId").notNull(), // email of the user to notify
+  type: text("type").notNull(), // "task_assigned" | "task_updated"
+  title: text("title").notNull(),
+  sourceId: text("sourceId"), // canvas node id or goal id
+  sourcePage: text("sourcePage"), // "technical" | "company" etc
+  fromUser: text("fromUser"), // who triggered it
+  read: boolean("read").default(false),
+  createdAt: timestamp("createdAt", { mode: "date" }).defaultNow(),
+});
+
 export const chatMessages = pgTable("chat_messages", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: text("userId").notNull(),
