@@ -58,6 +58,7 @@ export default function TechnicalPage() {
   const [arrowFrom, setArrowFrom] = useState<string | null>(null);
   const [showTimeline, setShowTimeline] = useState(true);
   const [timelineWeeks, setTimelineWeeks] = useState(12);
+  const [confirmClear, setConfirmClear] = useState(false);
 
   const [editTitle, setEditTitle] = useState("");
   const [editDesc, setEditDesc] = useState("");
@@ -223,6 +224,15 @@ export default function TechnicalPage() {
     }
     setEditingId(null);
   }, [editingId, editTitle, editDesc, editOwner, editHours, editStatus, updateNode, nodes, session?.user?.email]);
+
+  async function clearAll() {
+    await Promise.all([
+      ...nodes.map((n) => fetch(`/api/canvas/${n.id}`, { method: "DELETE" })),
+      ...strokes.map((s) => fetch("/api/canvas/strokes", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: s.id }) })),
+    ]);
+    mutateNodes(); mutateStrokes();
+    setSelectedId(null); setConfirmClear(false);
+  }
 
   // --- Arrows ---
   const arrows: { from: CanvasNode; to: CanvasNode; key: string }[] = [];
@@ -446,6 +456,18 @@ export default function TechnicalPage() {
             <span className="text-neutral-200">|</span>
             <button onClick={() => setShowLog(!showLog)}
               className={`text-[10px] font-mono px-2.5 py-1 rounded border transition-colors ${showLog ? "bg-black text-white border-black" : "bg-transparent text-neutral-500 border-neutral-200 hover:border-black"}`}>Log</button>
+            {isAdmin && (
+              confirmClear ? (
+                <div className="flex items-center gap-1 border border-red-300 rounded px-2 py-0.5 bg-red-50">
+                  <span className="text-[9px] font-mono text-red-600">Clear everything?</span>
+                  <button onClick={clearAll} className="text-[9px] font-mono text-red-600 font-bold hover:text-red-800 px-1">Yes</button>
+                  <button onClick={() => setConfirmClear(false)} className="text-[9px] font-mono text-neutral-400 hover:text-black px-1">No</button>
+                </div>
+              ) : (
+                <button onClick={() => setConfirmClear(true)}
+                  className="text-[10px] font-mono px-2.5 py-1 rounded border border-neutral-200 text-neutral-400 hover:text-red-500 hover:border-red-300 transition-colors">Clear</button>
+              )
+            )}
             <div className="flex items-center border border-neutral-200 rounded overflow-hidden">
               <button onClick={() => setZoom((z) => Math.max(0.2, z * 0.8))} className="text-[10px] font-mono px-1.5 py-0.5 text-neutral-500 hover:bg-neutral-50">−</button>
               <span className="text-[10px] font-mono text-neutral-400 px-1 border-x border-neutral-200">{Math.round(zoom * 100)}%</span>
@@ -548,7 +570,8 @@ export default function TechnicalPage() {
                 const pathD = `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`;
                 return (
                   <g key={key}>
-                    <path d={pathD} fill="none" stroke="transparent" strokeWidth={16} style={{ cursor: "pointer", pointerEvents: "stroke" }}
+                    {/* Fat invisible click target — 30px wide, scales with zoom for easy clicking */}
+                    <path d={pathD} fill="none" stroke="transparent" strokeWidth={Math.max(30, 30 / zoom)} style={{ cursor: "pointer", pointerEvents: "stroke" }}
                       onClick={(e) => { e.stopPropagation(); deleteArrow(from.id, to.id); }} />
                     <path d={pathD} fill="none" stroke="#b0b0b0" strokeWidth={1.5} markerEnd="url(#canvas-arrow)" style={{ pointerEvents: "none" }} />
                   </g>
