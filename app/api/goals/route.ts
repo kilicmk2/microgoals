@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
         owner: body.owner || "",
         parentId: body.parentId || null,
         reasoning: body.reasoning || "",
-        pinned: body.pinned || false,
+        pinned: (isMaster || isExecutive) ? (body.pinned || false) : false,
         order: body.order ? Math.min(body.order, 2000000000) : Math.floor(Date.now() / 1000) % 2000000000,
         approved: body.category === "executive" ? true : !needsApproval,
         proposedBy: needsApproval ? (session.user.email ?? "") : null,

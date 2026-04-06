@@ -27,28 +27,40 @@ export async function PATCH(
     if (existing.category === "executive" && !isExec) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    if (existing.category === "company" && !isMaster && !isExec) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
     if (existing.category === "personal" && existing.userId !== email) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const body = await req.json();
+    const isAdmin = isMaster || isExec;
 
+    // Regular employees can update limited fields on company goals
+    // (status, parentId, estimatedHours, owner — for assignments & connections)
+    // Admins can update everything
     const updates: Record<string, unknown> = { updatedAt: new Date() };
-    if (body.title !== undefined) updates.title = body.title;
-    if (body.description !== undefined) updates.description = body.description;
-    if (body.status !== undefined) updates.status = body.status;
-    if (body.horizon !== undefined) updates.horizon = body.horizon;
-    if (body.owner !== undefined) updates.owner = body.owner;
-    if (body.reasoning !== undefined) updates.reasoning = body.reasoning;
-    if (body.pinned !== undefined) updates.pinned = body.pinned;
-    if (body.order !== undefined) updates.order = body.order;
-    if (body.workstream !== undefined) updates.workstream = body.workstream;
-    if (body.targetDate !== undefined) updates.targetDate = body.targetDate;
-    if (body.parentId !== undefined) updates.parentId = body.parentId;
-    if (body.estimatedHours !== undefined) updates.estimatedHours = body.estimatedHours;
+
+    if (existing.category === "company" && !isAdmin) {
+      // Limited fields for regular employees
+      if (body.status !== undefined) updates.status = body.status;
+      if (body.parentId !== undefined) updates.parentId = body.parentId;
+      if (body.estimatedHours !== undefined) updates.estimatedHours = body.estimatedHours;
+      if (body.owner !== undefined) updates.owner = body.owner;
+      if (body.order !== undefined) updates.order = body.order;
+    } else {
+      // Full access for admins and own personal goals
+      if (body.title !== undefined) updates.title = body.title;
+      if (body.description !== undefined) updates.description = body.description;
+      if (body.status !== undefined) updates.status = body.status;
+      if (body.horizon !== undefined) updates.horizon = body.horizon;
+      if (body.owner !== undefined) updates.owner = body.owner;
+      if (body.reasoning !== undefined) updates.reasoning = body.reasoning;
+      if (body.pinned !== undefined) updates.pinned = body.pinned;
+      if (body.order !== undefined) updates.order = body.order;
+      if (body.workstream !== undefined) updates.workstream = body.workstream;
+      if (body.targetDate !== undefined) updates.targetDate = body.targetDate;
+      if (body.parentId !== undefined) updates.parentId = body.parentId;
+      if (body.estimatedHours !== undefined) updates.estimatedHours = body.estimatedHours;
+    }
 
     const [updated] = await getDb()
       .update(goals)
