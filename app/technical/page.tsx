@@ -87,6 +87,15 @@ export default function TechnicalPage() {
 
   useEffect(() => { if (status === "unauthenticated") router.push("/login"); }, [status, router]);
 
+  // Prevent browser zoom on the canvas — needs { passive: false } which React can't do
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => { e.preventDefault(); };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, []);
+
   function toCanvas(clientX: number, clientY: number) {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return { x: 0, y: 0 };
@@ -483,7 +492,7 @@ export default function TechnicalPage() {
             e.preventDefault();
             const rect = canvasRef.current?.getBoundingClientRect();
             if (!rect) return;
-            const factor = e.deltaY > 0 ? 0.9 : 1.1;
+            const factor = e.deltaY > 0 ? 0.95 : 1.05;
             const newZoom = Math.max(0.2, Math.min(4, zoom * factor));
             // Zoom toward cursor
             const mx = e.clientX - rect.left;
