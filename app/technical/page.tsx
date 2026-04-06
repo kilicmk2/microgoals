@@ -49,7 +49,6 @@ export default function TechnicalPage() {
   const isAdmin = TECHNICAL_ADMINS.includes(session?.user?.email ?? "");
   const unreadCount = notifs.filter((n) => !n.read).length;
 
-  // UI state
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showLog, setShowLog] = useState(false);
@@ -60,14 +59,12 @@ export default function TechnicalPage() {
   const [showTimeline, setShowTimeline] = useState(false);
   const [timelineWeeks, setTimelineWeeks] = useState(12);
 
-  // Edit fields
   const [editTitle, setEditTitle] = useState("");
   const [editDesc, setEditDesc] = useState("");
   const [editOwner, setEditOwner] = useState("");
   const [editHours, setEditHours] = useState("");
   const [editStatus, setEditStatus] = useState<GoalStatus>("not_started");
 
-  // Canvas
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const isPanning = useRef(false);
@@ -75,13 +72,18 @@ export default function TechnicalPage() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const draggingNode = useRef<string | null>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
-  const [currentStroke, setCurrentStroke] = useState<{ x: number; y: number }[] | null>(null);
+
+  // Drawing
+  const [currentStroke, setCurrentStroke] = useState<{ x: number; y: number }[]>([]);
   const isDrawing = useRef(false);
   const isErasing = useRef(false);
   const erasedIds = useRef(new Set<string>());
+  const eraseQueue = useRef<string[]>([]); // batch delete
 
   const CARD_W = 180;
   const CARD_H = 50;
+  const ERASE_R = 20;
+  const MIN_POINT_DIST = 4; // px — skip points closer than this
 
   useEffect(() => { if (status === "unauthenticated") router.push("/login"); }, [status, router]);
 
@@ -105,20 +107,47 @@ export default function TechnicalPage() {
     return false;
   }
 
-  function strokesNearPoint(cx: number, cy: number): string[] {
-    const R = 20, ids: string[] = [];
+  // Eraser: find strokes to delete — only checks every 3rd point for speed
+  function eraseAt(cx: number, cy: number) {
+    const R2 = ERASE_R * ERASE_R;
     for (const s of strokes) {
       if (erasedIds.current.has(s.id)) continue;
-      for (const pt of s.points) { if ((pt.x - cx) ** 2 + (pt.y - cy) ** 2 < R * R) { ids.push(s.id); break; } }
+      for (let i = 0; i < s.points.length; i += 3) {
+        const pt = s.points[i];
+        if ((pt.x - cx) ** 2 + (pt.y - cy) ** 2 < R2) {
+          erasedIds.current.add(s.id);
+          eraseQueue.current.push(s.id);
+          break;
+        }
+      }
     }
-    return ids;
+    // Also check arrows
+    for (const { from, to } of arrows) {
+      const x1 = from.x + CARD_W / 2, y1 = from.y + CARD_H / 2;
+      const x2 = to.x + CARD_W / 2, y2 = to.y + CARD_H / 2;
+      for (let i = 0; i <= 10; i++) {
+        const t = i / 10;
+        if (((x1 + (x2 - x1) * t - cx) ** 2 + (y1 + (y2 - y1) * t - cy) ** 2) < R2) {
+          deleteArrow(from.id, to.id);
+          break;
+        }
+      }
+    }
+  }
+
+  // Flush erased strokes to API (batched)
+  function flushErase() {
+    const ids = [...eraseQueue.current];
+    eraseQueue.current = [];
+    // Fire all deletes in parallel, no await
+    ids.forEach((id) => {
+      fetch("/api/canvas/strokes", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+    });
+    mutateStrokes();
+    erasedIds.current = new Set();
   }
 
   // --- API ---
-  const deleteStroke = useCallback(async (id: string) => {
-    await fetch("/api/canvas/strokes", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
-  }, []);
-
   const createNode = useCallback(async (x: number, y: number) => {
     const res = await fetch("/api/canvas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "New task", x, y }) });
     const node = await res.json();
@@ -135,7 +164,7 @@ export default function TechnicalPage() {
     await fetch(`/api/canvas/${id}`, { method: "DELETE" });
     for (const n of nodes) {
       if (n.connectedTo.includes(id)) {
-        await fetch(`/api/canvas/${n.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ connectedTo: n.connectedTo.filter((c) => c !== id) }) });
+        fetch(`/api/canvas/${n.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ connectedTo: n.connectedTo.filter((c) => c !== id) }) });
       }
     }
     mutateNodes(); setSelectedId(null); setConfirmDeleteId(null);
@@ -149,14 +178,10 @@ export default function TechnicalPage() {
 
   const assignOwner = useCallback(async (nodeId: string, ownerEmail: string) => {
     await updateNode(nodeId, { owner: ownerEmail });
-    // Send notification
     if (ownerEmail && ownerEmail !== session?.user?.email) {
       const node = nodes.find((n) => n.id === nodeId);
-      await fetch("/api/notifications", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: ownerEmail, type: "task_assigned", title: node?.title || "Task", sourceId: nodeId, sourcePage: "technical" }),
-      });
+      fetch("/api/notifications", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: ownerEmail, type: "task_assigned", title: node?.title || "Task", sourceId: nodeId, sourcePage: "technical" }) });
     }
   }, [updateNode, session?.user?.email, nodes]);
 
@@ -168,18 +193,10 @@ export default function TechnicalPage() {
   const saveEdit = useCallback(() => {
     if (!editingId) return;
     const prev = nodes.find((n) => n.id === editingId);
-    const ownerChanged = prev && editOwner !== prev.owner;
-    updateNode(editingId, {
-      title: editTitle, description: editDesc, owner: editOwner,
-      estimatedHours: editHours ? parseInt(editHours) : null, status: editStatus,
-    });
-    // Notify if owner changed
-    if (ownerChanged && editOwner && editOwner !== session?.user?.email) {
-      fetch("/api/notifications", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: editOwner, type: "task_assigned", title: editTitle, sourceId: editingId, sourcePage: "technical" }),
-      });
+    updateNode(editingId, { title: editTitle, description: editDesc, owner: editOwner, estimatedHours: editHours ? parseInt(editHours) : null, status: editStatus });
+    if (prev && editOwner !== prev.owner && editOwner && editOwner !== session?.user?.email) {
+      fetch("/api/notifications", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: editOwner, type: "task_assigned", title: editTitle, sourceId: editingId, sourcePage: "technical" }) });
     }
     setEditingId(null);
   }, [editingId, editTitle, editDesc, editOwner, editHours, editStatus, updateNode, nodes, session?.user?.email]);
@@ -198,20 +215,8 @@ export default function TechnicalPage() {
     if (from) updateNode(fromId, { connectedTo: from.connectedTo.filter((c) => c !== toId) });
   }
 
-  function arrowNearPoint(cx: number, cy: number): { fromId: string; toId: string } | null {
-    for (const { from, to } of arrows) {
-      const x1 = from.x + CARD_W / 2, y1 = from.y + CARD_H / 2, x2 = to.x + CARD_W / 2, y2 = to.y + CARD_H / 2;
-      for (let i = 0; i <= 20; i++) {
-        const t = i / 20;
-        if (((x1 + (x2 - x1) * t - cx) ** 2 + (y1 + (y2 - y1) * t - cy) ** 2) < 400) return { fromId: from.id, toId: to.id };
-      }
-    }
-    return null;
-  }
-
   // --- Mouse handlers ---
   function handleMouseDown(e: React.MouseEvent) {
-    // Only handle clicks on the canvas background (not on cards)
     const target = e.target as HTMLElement;
     if (target.closest("[data-card]")) return;
     if (!canvasRef.current?.contains(target)) return;
@@ -219,24 +224,29 @@ export default function TechnicalPage() {
     const pt = toCanvas(e.clientX, e.clientY);
 
     if (tool === "eraser") {
-      isErasing.current = true; erasedIds.current = new Set();
-      const hits = strokesNearPoint(pt.x, pt.y);
-      if (hits.length) { hits.forEach((id) => { erasedIds.current.add(id); deleteStroke(id); }); mutateStrokes(strokes.filter((s) => !hits.includes(s.id)), false); }
-      const ah = arrowNearPoint(pt.x, pt.y);
-      if (ah) deleteArrow(ah.fromId, ah.toId);
+      isErasing.current = true;
+      erasedIds.current = new Set();
+      eraseQueue.current = [];
+      eraseAt(pt.x, pt.y);
+      // Optimistic: remove from local state immediately
+      mutateStrokes(strokes.filter((s) => !erasedIds.current.has(s.id)), false);
       return;
     }
 
     if (tool === "draw") {
       if (isNearCard(pt.x, pt.y)) {
         const nodeId = nodeAtPoint(pt.x, pt.y);
-        if (nodeId) { const node = nodes.find((n) => n.id === nodeId); if (node) { draggingNode.current = nodeId; dragOffset.current = { x: pt.x - node.x, y: pt.y - node.y }; setSelectedId(nodeId); } }
+        if (nodeId) {
+          const node = nodes.find((n) => n.id === nodeId);
+          if (node) { draggingNode.current = nodeId; dragOffset.current = { x: pt.x - node.x, y: pt.y - node.y }; setSelectedId(nodeId); }
+        }
         return;
       }
-      isDrawing.current = true; setCurrentStroke([pt]); return;
+      isDrawing.current = true;
+      setCurrentStroke([pt]);
+      return;
     }
 
-    // select/arrow: pan
     isPanning.current = true;
     panStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
     setSelectedId(null);
@@ -245,36 +255,76 @@ export default function TechnicalPage() {
   function handleMouseMove(e: React.MouseEvent) {
     if (isErasing.current) {
       const pt = toCanvas(e.clientX, e.clientY);
-      const hits = strokesNearPoint(pt.x, pt.y);
-      if (hits.length) { hits.forEach((id) => { erasedIds.current.add(id); deleteStroke(id); }); mutateStrokes(strokes.filter((s) => !hits.includes(s.id) && !erasedIds.current.has(s.id)), false); }
-      const ah = arrowNearPoint(pt.x, pt.y);
-      if (ah) deleteArrow(ah.fromId, ah.toId);
+      const prevSize = erasedIds.current.size;
+      eraseAt(pt.x, pt.y);
+      if (erasedIds.current.size > prevSize) {
+        mutateStrokes(strokes.filter((s) => !erasedIds.current.has(s.id)), false);
+      }
       return;
     }
-    if (isDrawing.current && currentStroke) { setCurrentStroke((p) => p ? [...p, toCanvas(e.clientX, e.clientY)] : null); return; }
-    if (isPanning.current) { setPan({ x: e.clientX - panStart.current.x, y: e.clientY - panStart.current.y }); return; }
+
+    if (isDrawing.current) {
+      const pt = toCanvas(e.clientX, e.clientY);
+      setCurrentStroke((prev) => {
+        const last = prev[prev.length - 1];
+        if (last && (pt.x - last.x) ** 2 + (pt.y - last.y) ** 2 > MIN_POINT_DIST * MIN_POINT_DIST) {
+          return [...prev, pt];
+        }
+        return prev;
+      });
+      return;
+    }
+
+    if (isPanning.current) {
+      setPan({ x: e.clientX - panStart.current.x, y: e.clientY - panStart.current.y });
+      return;
+    }
+
     if (draggingNode.current) {
       const pt = toCanvas(e.clientX, e.clientY);
-      mutateNodes(nodes.map((n) => n.id === draggingNode.current ? { ...n, x: Math.round(pt.x - dragOffset.current.x), y: Math.round(pt.y - dragOffset.current.y) } : n), false);
+      mutateNodes(
+        nodes.map((n) => n.id === draggingNode.current ? { ...n, x: Math.round(pt.x - dragOffset.current.x), y: Math.round(pt.y - dragOffset.current.y) } : n),
+        false
+      );
     }
   }
 
   function handleMouseUp() {
-    if (isErasing.current) { isErasing.current = false; mutateStrokes(); return; }
-    if (isDrawing.current && currentStroke && currentStroke.length > 1) {
-      isDrawing.current = false;
-      const sn = nodeAtPoint(currentStroke[0].x, currentStroke[0].y);
-      const en = nodeAtPoint(currentStroke[currentStroke.length - 1].x, currentStroke[currentStroke.length - 1].y);
-      if (sn && en && sn !== en) { const f = nodes.find((n) => n.id === sn); if (f && !f.connectedTo.includes(en)) updateNode(sn, { connectedTo: [...f.connectedTo, en] }); }
-      else saveStroke(currentStroke);
-      setCurrentStroke(null); return;
+    if (isErasing.current) {
+      isErasing.current = false;
+      flushErase();
+      return;
     }
-    isDrawing.current = false; setCurrentStroke(null); isPanning.current = false;
-    if (draggingNode.current) { const n = nodes.find((x) => x.id === draggingNode.current); if (n) updateNode(draggingNode.current, { x: n.x, y: n.y }); draggingNode.current = null; }
+
+    if (isDrawing.current) {
+      isDrawing.current = false;
+      // Read current stroke from state — need to use a callback pattern
+      setCurrentStroke((pts) => {
+        if (pts.length > 1) {
+          const sn = nodeAtPoint(pts[0].x, pts[0].y);
+          const en = nodeAtPoint(pts[pts.length - 1].x, pts[pts.length - 1].y);
+          if (sn && en && sn !== en) {
+            const f = nodes.find((n) => n.id === sn);
+            if (f && !f.connectedTo.includes(en)) updateNode(sn, { connectedTo: [...f.connectedTo, en] });
+          } else {
+            saveStroke(pts);
+          }
+        }
+        return [];
+      });
+      return;
+    }
+
+    isPanning.current = false;
+
+    if (draggingNode.current) {
+      const n = nodes.find((x) => x.id === draggingNode.current);
+      if (n) updateNode(draggingNode.current, { x: n.x, y: n.y });
+      draggingNode.current = null;
+    }
   }
 
   function handleDoubleClick(e: React.MouseEvent) {
-    // Allow double-click anywhere on canvas (not on cards)
     const target = e.target as HTMLElement;
     if (target.closest("[data-card]")) return;
     const pt = toCanvas(e.clientX, e.clientY);
@@ -316,10 +366,7 @@ export default function TechnicalPage() {
     return d + ` L ${pts[pts.length - 1].x} ${pts[pts.length - 1].y}`;
   }
 
-  // Timeline
   const timelineStart = new Date();
-  const timelineEnd = new Date(timelineStart.getTime() + timelineWeeks * 7 * 86400000);
-
   const logEntries = [...nodes].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).slice(0, 30);
 
   if (status === "loading" || status === "unauthenticated") {
@@ -339,7 +386,6 @@ export default function TechnicalPage() {
             <span className="text-xs font-mono uppercase tracking-widest text-black border-b border-black pb-0.5">Technical</span>
           </div>
           <div className="flex items-center gap-2">
-            {/* Tools */}
             <div className="flex border border-neutral-200 rounded overflow-hidden">
               {([
                 { key: "select" as const, label: "Select", icon: "↖" },
@@ -355,54 +401,35 @@ export default function TechnicalPage() {
               ))}
             </div>
             <span className="text-neutral-200">|</span>
-            {/* Timeline toggle */}
             <button onClick={() => setShowTimeline(!showTimeline)}
-              className={`text-[10px] font-mono px-2.5 py-1 rounded border transition-colors ${
-                showTimeline ? "bg-black text-white border-black" : "bg-transparent text-neutral-500 border-neutral-200 hover:border-black"
-              }`}>Timeline</button>
+              className={`text-[10px] font-mono px-2.5 py-1 rounded border transition-colors ${showTimeline ? "bg-black text-white border-black" : "bg-transparent text-neutral-500 border-neutral-200 hover:border-black"}`}>Timeline</button>
             {showTimeline && (
               <select value={timelineWeeks} onChange={(e) => setTimelineWeeks(parseInt(e.target.value))}
                 className="text-[10px] font-mono border border-neutral-200 rounded px-1.5 py-0.5 outline-none">
-                <option value="4">4 weeks</option>
-                <option value="8">8 weeks</option>
-                <option value="12">12 weeks</option>
-                <option value="26">6 months</option>
-                <option value="52">1 year</option>
+                <option value="4">4w</option><option value="8">8w</option><option value="12">12w</option><option value="26">6m</option><option value="52">1y</option>
               </select>
             )}
             <span className="text-neutral-200">|</span>
             <button onClick={() => setShowLog(!showLog)}
-              className={`text-[10px] font-mono px-2.5 py-1 rounded border transition-colors ${
-                showLog ? "bg-black text-white border-black" : "bg-transparent text-neutral-500 border-neutral-200 hover:border-black"
-              }`}>Log</button>
+              className={`text-[10px] font-mono px-2.5 py-1 rounded border transition-colors ${showLog ? "bg-black text-white border-black" : "bg-transparent text-neutral-500 border-neutral-200 hover:border-black"}`}>Log</button>
             <span className="text-[10px] font-mono text-neutral-400">{Math.round(zoom * 100)}%</span>
             <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} className="text-[10px] font-mono text-neutral-400 hover:text-black">Reset</button>
-            {/* Notifications */}
             <div className="relative ml-1">
               <button onClick={() => { setShowNotifs(!showNotifs); if (!showNotifs) markNotifRead("all"); }}
                 className="text-[10px] font-mono text-neutral-400 hover:text-black relative px-1.5 py-0.5 border border-neutral-200 rounded">
-                Inbox
-                {unreadCount > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[8px] rounded-full w-4 h-4 flex items-center justify-center">{unreadCount}</span>
-                )}
+                Inbox{unreadCount > 0 && <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[8px] rounded-full w-4 h-4 flex items-center justify-center">{unreadCount}</span>}
               </button>
               {showNotifs && (
                 <div className="absolute right-0 top-8 w-72 bg-white border border-neutral-200 rounded-lg shadow-lg z-50 max-h-80 overflow-y-auto">
-                  <div className="p-3 border-b border-neutral-100">
-                    <span className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">Notifications</span>
-                  </div>
-                  {notifs.length === 0 ? (
-                    <p className="p-3 text-[10px] font-mono text-neutral-300">No notifications</p>
-                  ) : (
-                    notifs.map((n) => (
-                      <button key={n.id} onClick={() => { if (n.sourceId && n.sourcePage === "technical") { setSelectedId(n.sourceId); const node = nodes.find((x) => x.id === n.sourceId); if (node) setPan({ x: -node.x * zoom + 400, y: -node.y * zoom + 300 }); } setShowNotifs(false); }}
-                        className={`w-full text-left p-3 border-b border-neutral-50 hover:bg-neutral-50 transition-colors ${n.read ? "opacity-50" : ""}`}>
-                        <p className="text-[10px] font-medium text-black">{n.title}</p>
-                        <p className="text-[9px] font-mono text-neutral-400 mt-0.5">from {n.fromUser?.split("@")[0] || "unknown"}</p>
-                        <p className="text-[8px] font-mono text-neutral-300">{new Date(n.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
-                      </button>
-                    ))
-                  )}
+                  <div className="p-3 border-b border-neutral-100"><span className="text-[10px] font-mono uppercase tracking-widest text-neutral-500">Notifications</span></div>
+                  {notifs.length === 0 ? <p className="p-3 text-[10px] font-mono text-neutral-300">No notifications</p>
+                  : notifs.map((n) => (
+                    <button key={n.id} onClick={() => { if (n.sourceId) { setSelectedId(n.sourceId); const node = nodes.find((x) => x.id === n.sourceId); if (node) setPan({ x: -node.x * zoom + 400, y: -node.y * zoom + 300 }); } setShowNotifs(false); }}
+                      className={`w-full text-left p-3 border-b border-neutral-50 hover:bg-neutral-50 ${n.read ? "opacity-50" : ""}`}>
+                      <p className="text-[10px] font-medium text-black">{n.title}</p>
+                      <p className="text-[9px] font-mono text-neutral-400 mt-0.5">from {n.fromUser?.split("@")[0] || "?"}</p>
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
@@ -420,19 +447,16 @@ export default function TechnicalPage() {
         <div ref={canvasRef} className="flex-1 relative overflow-hidden"
           style={{ background: "#fafafa", cursor: cursorStyle }}
           onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp}
-          onMouseLeave={() => { isPanning.current = false; isErasing.current = false; isDrawing.current = false; setCurrentStroke(null);
+          onMouseLeave={() => { isPanning.current = false; if (isErasing.current) { isErasing.current = false; flushErase(); } if (isDrawing.current) { isDrawing.current = false; setCurrentStroke([]); }
             if (draggingNode.current) { const n = nodes.find((x) => x.id === draggingNode.current); if (n) updateNode(draggingNode.current, { x: n.x, y: n.y }); draggingNode.current = null; } }}
           onDoubleClick={handleDoubleClick}
           onWheel={(e) => { e.preventDefault(); setZoom((z) => Math.max(0.3, Math.min(3, z * (e.deltaY > 0 ? 0.9 : 1.1)))); }}>
 
-          {/* Grid */}
           <div className="absolute inset-0 pointer-events-none" style={{
             backgroundImage: "radial-gradient(circle, #e5e5e5 1px, transparent 1px)",
-            backgroundSize: `${30 * zoom}px ${30 * zoom}px`,
-            backgroundPosition: `${pan.x}px ${pan.y}px`,
+            backgroundSize: `${30 * zoom}px ${30 * zoom}px`, backgroundPosition: `${pan.x}px ${pan.y}px`,
           }} />
 
-          {/* Timeline overlay */}
           {showTimeline && (
             <div className="absolute left-0 right-0 pointer-events-none" style={{ top: `${pan.y + 40 * zoom}px`, zIndex: 5 }}>
               <div className="h-px bg-neutral-300 mx-8" style={{ opacity: 0.5 }} />
@@ -451,7 +475,6 @@ export default function TechnicalPage() {
             </div>
           )}
 
-          {/* Transform */}
           <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: "0 0" }}>
             <svg className="absolute" style={{ width: "10000px", height: "10000px" }}>
               <defs>
@@ -476,13 +499,12 @@ export default function TechnicalPage() {
                 <path key={s.id} d={pointsToPath(s.points)} fill="none" stroke={s.color || "#000"} strokeWidth={s.width || 2}
                   strokeLinecap="round" strokeLinejoin="round" opacity={0.5} style={{ pointerEvents: "none" }} />
               ))}
-              {currentStroke && currentStroke.length > 1 && (
+              {currentStroke.length > 1 && (
                 <path d={pointsToPath(currentStroke)} fill="none" stroke="#000" strokeWidth={2}
                   strokeLinecap="round" strokeLinejoin="round" opacity={0.35} style={{ pointerEvents: "none" }} />
               )}
             </svg>
 
-            {/* Cards */}
             {nodes.map((node) => {
               const sel = selectedId === node.id;
               const editing = editingId === node.id;
@@ -492,8 +514,7 @@ export default function TechnicalPage() {
                   onMouseDown={(e) => handleNodeMouseDown(e, node.id)}>
                   <div className={`border rounded-lg transition-all ${
                     arrowFrom === node.id ? "bg-blue-50 border-blue-400 shadow-md ring-2 ring-blue-200"
-                    : sel ? "bg-white border-black shadow-md"
-                    : "bg-white border-neutral-200 hover:border-neutral-400 shadow-sm"
+                    : sel ? "bg-white border-black shadow-md" : "bg-white border-neutral-200 hover:border-neutral-400 shadow-sm"
                   }`}>
                     {editing ? (
                       <div className="p-3 space-y-2" onMouseDown={(e) => e.stopPropagation()}>
@@ -501,13 +522,10 @@ export default function TechnicalPage() {
                           value={editTitle} onChange={(e) => setEditTitle(e.target.value)} autoFocus />
                         <textarea className="w-full text-[10px] bg-transparent border border-neutral-200 rounded p-1.5 outline-none focus:border-black resize-none"
                           value={editDesc} onChange={(e) => setEditDesc(e.target.value)} placeholder="Description" rows={2} />
-                        {/* Owner dropdown */}
                         <select value={editOwner} onChange={(e) => setEditOwner(e.target.value)}
                           className="w-full text-[10px] font-mono bg-transparent border border-neutral-200 rounded p-1.5 outline-none focus:border-black">
                           <option value="">Assign owner...</option>
-                          {team.map((email) => (
-                            <option key={email} value={email}>{email.split("@")[0]}</option>
-                          ))}
+                          {team.map((email) => <option key={email} value={email}>{email.split("@")[0]}</option>)}
                         </select>
                         <div className="flex gap-2">
                           <select value={editStatus} onChange={(e) => setEditStatus(e.target.value as GoalStatus)}
@@ -538,7 +556,6 @@ export default function TechnicalPage() {
                               className="text-[9px] font-mono bg-transparent border border-neutral-200 rounded px-0.5 py-0.5 outline-none cursor-pointer">
                               {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{STATUS_CONFIG[s].label}</option>)}
                             </select>
-                            {/* Quick assign */}
                             <select value={node.owner || ""} onChange={(e) => assignOwner(node.id, e.target.value)}
                               className="text-[9px] font-mono bg-transparent border border-neutral-200 rounded px-0.5 py-0.5 outline-none cursor-pointer">
                               <option value="">Assign</option>
@@ -551,9 +568,7 @@ export default function TechnicalPage() {
                                   <button onClick={() => deleteNode(node.id)} className="text-[9px] font-mono text-red-500 hover:text-red-700 px-1">Del</button>
                                   <button onClick={() => setConfirmDeleteId(null)} className="text-[9px] font-mono text-neutral-400 px-1">No</button>
                                 </div>
-                              ) : (
-                                <button onClick={() => setConfirmDeleteId(node.id)} className="text-[9px] font-mono text-neutral-400 hover:text-red-500 px-1">Del</button>
-                              )
+                              ) : <button onClick={() => setConfirmDeleteId(node.id)} className="text-[9px] font-mono text-neutral-400 hover:text-red-500 px-1">Del</button>
                             )}
                           </div>
                         )}
@@ -567,10 +582,7 @@ export default function TechnicalPage() {
 
           {nodes.length === 0 && strokes.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="text-center">
-                <p className="text-sm font-mono text-neutral-400">Double-click anywhere to add a task</p>
-                <p className="text-[10px] font-mono text-neutral-300 mt-1">Draw to sketch &middot; Lines between cards become arrows</p>
-              </div>
+              <p className="text-sm font-mono text-neutral-400">Double-click anywhere to add a task</p>
             </div>
           )}
         </div>
@@ -582,17 +594,12 @@ export default function TechnicalPage() {
               {logEntries.map((node) => (
                 <div key={node.id} className="border-b border-neutral-50 pb-2 mb-2">
                   <p className="text-[10px] font-medium text-black">{node.title}</p>
-                  <p className="text-[9px] font-mono text-neutral-400 mt-0.5">By {node.createdBy?.split("@")[0] || "unknown"}</p>
-                  {node.lastEditedBy && node.lastEditedBy !== node.createdBy && (
-                    <p className="text-[9px] font-mono text-neutral-400">Edited {node.lastEditedBy?.split("@")[0]}</p>
-                  )}
+                  <p className="text-[9px] font-mono text-neutral-400">By {node.createdBy?.split("@")[0] || "?"}</p>
                   {node.owner && <p className="text-[9px] font-mono text-blue-500">@{node.owner.split("@")[0]}</p>}
-                  <p className="text-[8px] font-mono text-neutral-300 mt-0.5">
-                    {new Date(node.updatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
-                  </p>
+                  <p className="text-[8px] font-mono text-neutral-300">{new Date(node.updatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
                 </div>
               ))}
-              {logEntries.length === 0 && <p className="text-[10px] font-mono text-neutral-300">No activity yet</p>}
+              {logEntries.length === 0 && <p className="text-[10px] font-mono text-neutral-300">No activity</p>}
             </div>
           </div>
         )}
