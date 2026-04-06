@@ -200,6 +200,9 @@ export default function RoadmapTimeline({ goals, category = "company", onUpdate,
             <span className={`text-[10px] font-medium leading-tight ${isExpanded ? "text-black" : "text-neutral-700"} ${isExpanded ? "" : "truncate"}`}>
               {m.title}
             </span>
+            {!isExpanded && m.estimatedHours && (
+              <span className="text-[8px] font-mono text-neutral-400 shrink-0">~{m.estimatedHours}h</span>
+            )}
           </div>
 
           {/* Expanded details */}
@@ -343,6 +346,37 @@ export default function RoadmapTimeline({ goals, category = "company", onUpdate,
           <div className="absolute left-0 right-0" style={{ top: `${axisTop + AXIS_GAP}px`, height: `${belowHeight}px` }}>
             {below.map((m) => renderCard(m, "below"))}
           </div>
+
+          {/* SVG dependency arrows */}
+          <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 10 }}>
+            <defs>
+              <marker id="arrowhead" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto">
+                <polygon points="0 0, 6 2, 0 4" fill="#9ca3af" />
+              </marker>
+            </defs>
+            {milestones.map((child) => {
+              if (!child.parentId) return null;
+              const parent = milestones.find((m) => m.id === child.parentId);
+              if (!parent) return null;
+              // Draw curved arrow from parent dot to child dot along the axis
+              const x1 = parent.pct;
+              const x2 = child.pct;
+              if (Math.abs(x1 - x2) < 0.5) return null; // same position
+              const axisY = axisTop + 1; // px from top of container
+              // Convert pct to approximate px (container is 100%)
+              return (
+                <path
+                  key={`${parent.id}-${child.id}`}
+                  d={`M ${x1}% ${axisY} Q ${(x1 + x2) / 2}% ${axisY + 20} ${x2}% ${axisY}`}
+                  fill="none"
+                  stroke="#d1d5db"
+                  strokeWidth="1.5"
+                  strokeDasharray="4 2"
+                  markerEnd="url(#arrowhead)"
+                />
+              );
+            })}
+          </svg>
 
           {dragging && (
             <div className="absolute inset-0 pointer-events-none flex items-center justify-center">

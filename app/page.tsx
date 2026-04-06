@@ -259,8 +259,10 @@ export default function Home() {
                 <GoalCard
                   key={goal.id}
                   goal={goal}
+                  allGoals={goals}
                   onUpdate={updateGoal}
                   onDelete={deleteGoal}
+                  onAdd={addGoal}
                   childCount={goals.filter((g) => g.parentId === goal.id).length}
                   showPin={category === "company" || category === "executive"}
                   isMaster={isMaster}
@@ -271,7 +273,7 @@ export default function Home() {
                   availableHorizons={allHorizons}
                 />
               ))}
-              <AddGoal horizon={horizon} category={category} workstream={workstream} onAdd={addGoal} />
+              <AddGoal horizon={horizon} category={category} workstream={workstream} allGoals={goals} onAdd={addGoal} />
             </div>
           </div>
         </div>

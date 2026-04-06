@@ -31,6 +31,7 @@ export interface Goal {
   proposedBy: string | null;
   workstream: string | null;
   targetDate: string | null;
+  estimatedHours: number | null;
   createdAt: string;
   updatedAt: string;
 }

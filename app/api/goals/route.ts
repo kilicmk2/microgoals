@@ -88,6 +88,7 @@ export async function POST(req: NextRequest) {
         proposedBy: needsApproval ? (session.user.email ?? "") : null,
         workstream: body.workstream || null,
         targetDate: body.targetDate || null,
+        estimatedHours: body.estimatedHours || null,
       })
       .returning();
 

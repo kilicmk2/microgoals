@@ -47,6 +47,8 @@ export async function PATCH(
     if (body.order !== undefined) updates.order = body.order;
     if (body.workstream !== undefined) updates.workstream = body.workstream;
     if (body.targetDate !== undefined) updates.targetDate = body.targetDate;
+    if (body.parentId !== undefined) updates.parentId = body.parentId;
+    if (body.estimatedHours !== undefined) updates.estimatedHours = body.estimatedHours;
 
     const [updated] = await getDb()
       .update(goals)

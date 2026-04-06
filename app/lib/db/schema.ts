@@ -80,6 +80,7 @@ export const goals = pgTable("goals", {
   proposedBy: text("proposedBy"),
   workstream: text("workstream"),
   targetDate: text("targetDate"),
+  estimatedHours: integer("estimatedHours"),
   createdAt: timestamp("createdAt", { mode: "date" }).defaultNow(),
   updatedAt: timestamp("updatedAt", { mode: "date" }).defaultNow(),
 });

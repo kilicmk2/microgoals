@@ -27,6 +27,7 @@ function goal(
     proposedBy: null,
     workstream: opts.workstream || null,
     targetDate: opts.targetDate || null,
+    estimatedHours: opts.estimatedHours || null,
     createdAt: now,
     updatedAt: now,
   };
