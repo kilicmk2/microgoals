@@ -24,6 +24,9 @@ interface Stroke {
   createdBy: string | null;
 }
 
+// Custom eraser cursor (circle outline)
+const ERASER_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='10' fill='none' stroke='%23666' stroke-width='2'/%3E%3C/svg%3E") 12 12, auto`;
+
 export default function TechnicalPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -37,34 +40,31 @@ export default function TechnicalPage() {
 
   const isAdmin = TECHNICAL_ADMINS.includes(session?.user?.email ?? "");
 
-  // UI state
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showLog, setShowLog] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [tool, setTool] = useState<"select" | "draw" | "eraser">("select");
 
-  // Edit fields
   const [editTitle, setEditTitle] = useState("");
   const [editDesc, setEditDesc] = useState("");
   const [editOwner, setEditOwner] = useState("");
   const [editHours, setEditHours] = useState("");
   const [editStatus, setEditStatus] = useState<GoalStatus>("not_started");
 
-  // Pan & zoom
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const isPanning = useRef(false);
   const panStart = useRef({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLDivElement>(null);
 
-  // Drag node
   const draggingNode = useRef<string | null>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
 
-  // Drawing state
   const [currentStroke, setCurrentStroke] = useState<{ x: number; y: number }[] | null>(null);
   const isDrawing = useRef(false);
+  const isErasing = useRef(false);
+  const erasedIds = useRef(new Set<string>());
 
   const CARD_W = 180;
   const CARD_H = 50;
@@ -73,7 +73,6 @@ export default function TechnicalPage() {
     if (status === "unauthenticated") router.push("/login");
   }, [status, router]);
 
-  // Convert screen coords to canvas coords
   function toCanvas(clientX: number, clientY: number) {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return { x: 0, y: 0 };
@@ -83,52 +82,44 @@ export default function TechnicalPage() {
     };
   }
 
-  // Find which node a point is inside
   function nodeAtPoint(cx: number, cy: number): string | null {
     for (const n of nodes) {
-      if (cx >= n.x && cx <= n.x + CARD_W && cy >= n.y && cy <= n.y + CARD_H) {
-        return n.id;
-      }
+      if (cx >= n.x && cx <= n.x + CARD_W && cy >= n.y && cy <= n.y + CARD_H) return n.id;
     }
     return null;
   }
 
-  // Check if point is near any card (within padding px of card edge)
-  const NEAR_CARD_PADDING = 40;
   function isNearCard(cx: number, cy: number): boolean {
     for (const n of nodes) {
-      if (
-        cx >= n.x - NEAR_CARD_PADDING && cx <= n.x + CARD_W + NEAR_CARD_PADDING &&
-        cy >= n.y - NEAR_CARD_PADDING && cy <= n.y + CARD_H + NEAR_CARD_PADDING
-      ) return true;
+      if (cx >= n.x - 30 && cx <= n.x + CARD_W + 30 && cy >= n.y - 30 && cy <= n.y + CARD_H + 30) return true;
     }
     return false;
   }
 
-  // Find stroke near a point (for eraser)
-  function strokeNearPoint(cx: number, cy: number): string | null {
-    const THRESHOLD = 15;
+  // Find all strokes near a point (for eraser — continuous)
+  function strokesNearPoint(cx: number, cy: number): string[] {
+    const R = 20;
+    const ids: string[] = [];
     for (const s of strokes) {
+      if (erasedIds.current.has(s.id)) continue;
       for (const pt of s.points) {
-        const dx = pt.x - cx;
-        const dy = pt.y - cy;
-        if (dx * dx + dy * dy < THRESHOLD * THRESHOLD) return s.id;
+        if ((pt.x - cx) ** 2 + (pt.y - cy) ** 2 < R * R) {
+          ids.push(s.id);
+          break;
+        }
       }
     }
-    return null;
+    return ids;
   }
 
-  // Delete a stroke
   const deleteStroke = useCallback(async (id: string) => {
     await fetch("/api/canvas/strokes", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
     });
-    mutateStrokes();
-  }, [mutateStrokes]);
+  }, []);
 
-  // API helpers
   const createNode = useCallback(async (x: number, y: number) => {
     const res = await fetch("/api/canvas", {
       method: "POST",
@@ -164,12 +155,11 @@ export default function TechnicalPage() {
         });
       }
     }
-    mutateNodes();
-    setSelectedId(null);
-    setConfirmDeleteId(null);
+    mutateNodes(); setSelectedId(null); setConfirmDeleteId(null);
   }, [mutateNodes, nodes]);
 
   const saveStroke = useCallback(async (points: { x: number; y: number }[]) => {
+    if (points.length < 2) return;
     await fetch("/api/canvas/strokes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -187,29 +177,33 @@ export default function TechnicalPage() {
     setEditingId(null);
   }, [editingId, editTitle, editDesc, editOwner, editHours, editStatus, updateNode]);
 
-  // Canvas mouse handlers
-  function handleCanvasMouseDown(e: React.MouseEvent) {
-    if (e.target !== canvasRef.current) return;
+  // --- Mouse handlers ---
 
+  function handleMouseDown(e: React.MouseEvent) {
+    if (e.target !== canvasRef.current) return;
     const pt = toCanvas(e.clientX, e.clientY);
 
     if (tool === "eraser") {
-      const sid = strokeNearPoint(pt.x, pt.y);
-      if (sid) deleteStroke(sid);
+      isErasing.current = true;
+      erasedIds.current = new Set();
+      // Immediately erase anything under cursor
+      const hits = strokesNearPoint(pt.x, pt.y);
+      if (hits.length) {
+        hits.forEach((id) => { erasedIds.current.add(id); deleteStroke(id); });
+        mutateStrokes(strokes.filter((s) => !hits.includes(s.id)), false);
+      }
       return;
     }
 
     if (tool === "draw") {
-      // If near a card, act as select instead of drawing
       if (isNearCard(pt.x, pt.y)) {
         const nodeId = nodeAtPoint(pt.x, pt.y);
         if (nodeId) {
-          setSelectedId(nodeId);
-          // Start drag
           const node = nodes.find((n) => n.id === nodeId);
           if (node) {
             draggingNode.current = nodeId;
             dragOffset.current = { x: pt.x - node.x, y: pt.y - node.y };
+            setSelectedId(nodeId);
           }
         }
         return;
@@ -219,31 +213,38 @@ export default function TechnicalPage() {
       return;
     }
 
-    // Pan mode (select tool on background)
+    // Select: pan
     isPanning.current = true;
     panStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
   }
 
-  function handleCanvasMouseMove(e: React.MouseEvent) {
-    // Drawing
-    if (isDrawing.current && currentStroke) {
+  function handleMouseMove(e: React.MouseEvent) {
+    // Eraser: continuously erase strokes under cursor
+    if (isErasing.current) {
       const pt = toCanvas(e.clientX, e.clientY);
-      setCurrentStroke([...currentStroke, pt]);
+      const hits = strokesNearPoint(pt.x, pt.y);
+      if (hits.length) {
+        hits.forEach((id) => { erasedIds.current.add(id); deleteStroke(id); });
+        mutateStrokes(strokes.filter((s) => !hits.includes(s.id) && !erasedIds.current.has(s.id)), false);
+      }
       return;
     }
 
-    // Panning
+    if (isDrawing.current && currentStroke) {
+      const pt = toCanvas(e.clientX, e.clientY);
+      setCurrentStroke((prev) => prev ? [...prev, pt] : [pt]);
+      return;
+    }
+
     if (isPanning.current) {
       setPan({ x: e.clientX - panStart.current.x, y: e.clientY - panStart.current.y });
       return;
     }
 
-    // Dragging node
     if (draggingNode.current) {
-      const rect = canvasRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const x = (e.clientX - rect.left - pan.x) / zoom - dragOffset.current.x;
-      const y = (e.clientY - rect.top - pan.y) / zoom - dragOffset.current.y;
+      const pt = toCanvas(e.clientX, e.clientY);
+      const x = pt.x - dragOffset.current.x;
+      const y = pt.y - dragOffset.current.y;
       mutateNodes(
         nodes.map((n) => n.id === draggingNode.current ? { ...n, x: Math.round(x), y: Math.round(y) } : n),
         false
@@ -251,23 +252,26 @@ export default function TechnicalPage() {
     }
   }
 
-  function handleCanvasMouseUp(e: React.MouseEvent) {
-    // Finish drawing
+  function handleMouseUp() {
+    // Eraser done
+    if (isErasing.current) {
+      isErasing.current = false;
+      mutateStrokes(); // refetch clean
+      return;
+    }
+
+    // Drawing done
     if (isDrawing.current && currentStroke && currentStroke.length > 1) {
       isDrawing.current = false;
-      const startPt = currentStroke[0];
-      const endPt = currentStroke[currentStroke.length - 1];
-      const startNode = nodeAtPoint(startPt.x, startPt.y);
-      const endNode = nodeAtPoint(endPt.x, endPt.y);
+      const startNode = nodeAtPoint(currentStroke[0].x, currentStroke[0].y);
+      const endNode = nodeAtPoint(currentStroke[currentStroke.length - 1].x, currentStroke[currentStroke.length - 1].y);
 
       if (startNode && endNode && startNode !== endNode) {
-        // Stroke connects two cards — create arrow connection instead of freehand
         const from = nodes.find((n) => n.id === startNode);
         if (from && !from.connectedTo.includes(endNode)) {
           updateNode(startNode, { connectedTo: [...from.connectedTo, endNode] });
         }
       } else {
-        // Save as freehand stroke
         saveStroke(currentStroke);
       }
       setCurrentStroke(null);
@@ -275,11 +279,8 @@ export default function TechnicalPage() {
     }
     isDrawing.current = false;
     setCurrentStroke(null);
-
-    // Finish panning
     isPanning.current = false;
 
-    // Finish dragging
     if (draggingNode.current) {
       const node = nodes.find((n) => n.id === draggingNode.current);
       if (node) updateNode(draggingNode.current, { x: node.x, y: node.y });
@@ -287,7 +288,7 @@ export default function TechnicalPage() {
     }
   }
 
-  function handleCanvasDoubleClick(e: React.MouseEvent) {
+  function handleDoubleClick(e: React.MouseEvent) {
     if (e.target !== canvasRef.current) return;
     const pt = toCanvas(e.clientX, e.clientY);
     createNode(Math.round(pt.x), Math.round(pt.y));
@@ -300,16 +301,12 @@ export default function TechnicalPage() {
 
   function handleNodeMouseDown(e: React.MouseEvent, nodeId: string) {
     e.stopPropagation();
-    if (tool === "eraser") return; // eraser only affects strokes, not cards
-    // In any mode (select or draw), clicking a card selects/drags it
+    if (tool === "eraser") return;
     const node = nodes.find((n) => n.id === nodeId);
     if (!node) return;
     draggingNode.current = nodeId;
     const pt = toCanvas(e.clientX, e.clientY);
-    dragOffset.current = {
-      x: pt.x - node.x,
-      y: pt.y - node.y,
-    };
+    dragOffset.current = { x: pt.x - node.x, y: pt.y - node.y };
     setSelectedId(nodeId);
   }
 
@@ -320,7 +317,7 @@ export default function TechnicalPage() {
     setEditStatus(node.status);
   }
 
-  // Arrows from connectedTo
+  // Arrows
   const arrows: { from: CanvasNode; to: CanvasNode }[] = [];
   for (const n of nodes) {
     for (const tid of n.connectedTo) {
@@ -329,7 +326,7 @@ export default function TechnicalPage() {
     }
   }
 
-  // Activity log
+  // Log
   const logEntries = [...nodes]
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
     .slice(0, 30);
@@ -342,59 +339,50 @@ export default function TechnicalPage() {
     );
   }
 
-  // SVG path from points
   function pointsToPath(pts: { x: number; y: number }[]): string {
     if (pts.length < 2) return "";
-    return `M ${pts[0].x} ${pts[0].y} ` + pts.slice(1).map((p) => `L ${p.x} ${p.y}`).join(" ");
+    // Smooth the path with quadratic curves
+    let d = `M ${pts[0].x} ${pts[0].y}`;
+    for (let i = 1; i < pts.length - 1; i++) {
+      const mx = (pts[i].x + pts[i + 1].x) / 2;
+      const my = (pts[i].y + pts[i + 1].y) / 2;
+      d += ` Q ${pts[i].x} ${pts[i].y} ${mx} ${my}`;
+    }
+    const last = pts[pts.length - 1];
+    d += ` L ${last.x} ${last.y}`;
+    return d;
   }
+
+  const cursorStyle = tool === "eraser" ? ERASER_CURSOR : tool === "draw" ? "crosshair" : undefined;
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
-      {/* Top bar */}
+      {/* Nav */}
       <nav className="w-full border-b border-neutral-100 shrink-0 z-20 bg-white">
         <div className="max-w-full mx-auto px-4 flex items-center justify-between h-12">
           <div className="flex items-center gap-4">
-            <Link href="/" className="text-[10px] font-mono text-neutral-400 hover:text-black flex items-center gap-1">
-              &larr; Back
-            </Link>
+            <Link href="/" className="text-[10px] font-mono text-neutral-400 hover:text-black">&larr; Back</Link>
             <span className="text-neutral-200">|</span>
             <Link href="/" className="text-base tracking-tight"><Logo /></Link>
             <span className="text-xs font-mono uppercase tracking-widest text-black border-b border-black pb-0.5">Technical</span>
           </div>
           <div className="flex items-center gap-3">
-            {/* Tool selector */}
             <div className="flex border border-neutral-200 rounded overflow-hidden">
-              <button
-                onClick={() => setTool("select")}
-                className={`text-[10px] font-mono px-3 py-1 transition-colors ${
-                  tool === "select" ? "bg-black text-white" : "bg-transparent text-neutral-500 hover:bg-neutral-50"
-                }`}
-              >
-                Select
-              </button>
-              <button
-                onClick={() => setTool("draw")}
-                className={`text-[10px] font-mono px-3 py-1 transition-colors ${
-                  tool === "draw" ? "bg-black text-white" : "bg-transparent text-neutral-500 hover:bg-neutral-50"
-                }`}
-              >
-                Draw
-              </button>
-              <button
-                onClick={() => setTool("eraser")}
-                className={`text-[10px] font-mono px-3 py-1 transition-colors ${
-                  tool === "eraser" ? "bg-red-500 text-white" : "bg-transparent text-neutral-500 hover:bg-neutral-50"
-                }`}
-              >
-                Eraser
-              </button>
+              {(["select", "draw", "eraser"] as const).map((t) => (
+                <button key={t} onClick={() => setTool(t)}
+                  className={`text-[10px] font-mono px-3 py-1 transition-colors capitalize ${
+                    tool === t
+                      ? t === "eraser" ? "bg-red-500 text-white" : "bg-black text-white"
+                      : "bg-transparent text-neutral-500 hover:bg-neutral-50"
+                  }`}>{t}</button>
+              ))}
             </div>
             <button onClick={() => setShowLog(!showLog)}
               className={`text-[10px] font-mono px-3 py-1 rounded border transition-colors ${
                 showLog ? "bg-black text-white border-black" : "bg-transparent text-neutral-500 border-neutral-200 hover:border-black"
               }`}>Log</button>
             <span className="text-[10px] font-mono text-neutral-400">{Math.round(zoom * 100)}%</span>
-            <button onClick={() => setZoom(1)} className="text-[10px] font-mono text-neutral-400 hover:text-black">Reset</button>
+            <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} className="text-[10px] font-mono text-neutral-400 hover:text-black">Reset view</button>
             {session?.user && (
               <div className="flex items-center gap-2 ml-2 pl-2 border-l border-neutral-200">
                 <span className="text-[10px] font-mono text-neutral-400">{session.user.email}</span>
@@ -406,80 +394,85 @@ export default function TechnicalPage() {
       </nav>
 
       <div className="flex-1 flex overflow-hidden">
-        {/* Canvas */}
         <div
           ref={canvasRef}
-          className={`flex-1 relative overflow-hidden ${
-            tool === "eraser" ? "cursor-pointer" : tool === "draw" ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"
-          }`}
-          style={{ background: "#fafafa" }}
-          onMouseDown={handleCanvasMouseDown}
-          onMouseMove={handleCanvasMouseMove}
-          onMouseUp={handleCanvasMouseUp}
-          onMouseLeave={() => { isPanning.current = false; isDrawing.current = false; setCurrentStroke(null); if (draggingNode.current) { const n = nodes.find((x) => x.id === draggingNode.current); if (n) updateNode(draggingNode.current, { x: n.x, y: n.y }); draggingNode.current = null; } }}
-          onDoubleClick={handleCanvasDoubleClick}
+          className="flex-1 relative overflow-hidden"
+          style={{ background: "#fafafa", cursor: cursorStyle }}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={() => {
+            isPanning.current = false;
+            isErasing.current = false;
+            isDrawing.current = false;
+            setCurrentStroke(null);
+            if (draggingNode.current) {
+              const n = nodes.find((x) => x.id === draggingNode.current);
+              if (n) updateNode(draggingNode.current, { x: n.x, y: n.y });
+              draggingNode.current = null;
+            }
+          }}
+          onDoubleClick={handleDoubleClick}
           onWheel={handleWheel}
         >
-          {/* Grid dots */}
+          {/* Grid */}
           <div className="absolute inset-0 pointer-events-none" style={{
             backgroundImage: "radial-gradient(circle, #e5e5e5 1px, transparent 1px)",
             backgroundSize: `${30 * zoom}px ${30 * zoom}px`,
             backgroundPosition: `${pan.x}px ${pan.y}px`,
           }} />
 
-          {/* Transform layer */}
+          {/* Transform */}
           <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: "0 0" }}>
-            {/* SVG layer: arrows + strokes */}
             <svg className="absolute" style={{ width: "10000px", height: "10000px", pointerEvents: "none" }}>
               <defs>
                 <marker id="canvas-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
                   <polygon points="0 0, 8 3, 0 6" fill="#9ca3af" />
                 </marker>
               </defs>
-              {/* Connection arrows */}
+              {/* Arrows */}
               {arrows.map(({ from, to }) => {
                 const x1 = from.x + CARD_W / 2;
                 const y1 = from.y + CARD_H / 2;
                 const x2 = to.x + CARD_W / 2;
                 const y2 = to.y + CARD_H / 2;
-                const mx = (x1 + x2) / 2;
-                const my = (y1 + y2) / 2 - 30;
+                const dx = x2 - x1;
+                const dy = y2 - y1;
+                const cx = (x1 + x2) / 2 - dy * 0.15;
+                const cy = (y1 + y2) / 2 + dx * 0.15;
                 return (
                   <path key={`${from.id}-${to.id}`}
-                    d={`M ${x1} ${y1} Q ${mx} ${my} ${x2} ${y2}`}
-                    fill="none" stroke="#9ca3af" strokeWidth={2}
+                    d={`M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`}
+                    fill="none" stroke="#b0b0b0" strokeWidth={1.5}
                     markerEnd="url(#canvas-arrow)" />
                 );
               })}
-              {/* Saved freehand strokes */}
+              {/* Saved strokes */}
               {strokes.map((s) => (
                 <path key={s.id} d={pointsToPath(s.points)}
                   fill="none" stroke={s.color || "#000"} strokeWidth={s.width || 2}
-                  strokeLinecap="round" strokeLinejoin="round" opacity={0.6} />
+                  strokeLinecap="round" strokeLinejoin="round" opacity={0.5} />
               ))}
-              {/* Current drawing stroke */}
+              {/* Current stroke */}
               {currentStroke && currentStroke.length > 1 && (
                 <path d={pointsToPath(currentStroke)}
                   fill="none" stroke="#000" strokeWidth={2}
-                  strokeLinecap="round" strokeLinejoin="round" opacity={0.4} />
+                  strokeLinecap="round" strokeLinejoin="round" opacity={0.35} />
               )}
             </svg>
 
-            {/* Nodes */}
+            {/* Cards */}
             {nodes.map((node) => {
-              const isSelected = selectedId === node.id;
-              const isEditing = editingId === node.id;
-
+              const sel = selectedId === node.id;
+              const editing = editingId === node.id;
               return (
-                <div key={node.id}
-                  className="absolute select-none"
-                  style={{ left: node.x, top: node.y, width: CARD_W, zIndex: isSelected ? 20 : 1 }}
-                  onMouseDown={(e) => handleNodeMouseDown(e, node.id)}
-                >
+                <div key={node.id} className="absolute select-none"
+                  style={{ left: node.x, top: node.y, width: CARD_W, zIndex: sel ? 20 : 1 }}
+                  onMouseDown={(e) => handleNodeMouseDown(e, node.id)}>
                   <div className={`border rounded-lg transition-all ${
-                    isSelected ? "bg-white border-black shadow-md" : "bg-white border-neutral-200 hover:border-neutral-400 shadow-sm"
+                    sel ? "bg-white border-black shadow-md" : "bg-white border-neutral-200 hover:border-neutral-400 shadow-sm"
                   }`}>
-                    {isEditing ? (
+                    {editing ? (
                       <div className="p-3 space-y-2" onMouseDown={(e) => e.stopPropagation()}>
                         <input className="w-full text-xs font-medium bg-transparent border-b border-neutral-300 pb-1 outline-none focus:border-black"
                           value={editTitle} onChange={(e) => setEditTitle(e.target.value)} autoFocus />
@@ -509,8 +502,10 @@ export default function TechnicalPage() {
                           <span className="text-[10px] font-medium text-black truncate">{node.title}</span>
                         </div>
                         {node.owner && <p className="text-[9px] font-mono text-neutral-400 mt-0.5">{node.owner}</p>}
-                        {node.estimatedHours != null && <span className="text-[8px] font-mono text-neutral-400">~{node.estimatedHours}h</span>}
-                        {isSelected && (
+                        {node.estimatedHours != null && node.estimatedHours > 0 && (
+                          <span className="text-[8px] font-mono text-neutral-400">~{node.estimatedHours}h</span>
+                        )}
+                        {sel && (
                           <div className="flex items-center gap-1 mt-2 pt-1.5 border-t border-neutral-100" onMouseDown={(e) => e.stopPropagation()}>
                             <select value={node.status}
                               onChange={(e) => updateNode(node.id, { status: e.target.value as GoalStatus })}
@@ -538,18 +533,16 @@ export default function TechnicalPage() {
             })}
           </div>
 
-          {/* Empty state */}
           {nodes.length === 0 && strokes.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="text-center">
                 <p className="text-sm font-mono text-neutral-400">Double-click to add a task</p>
-                <p className="text-[10px] font-mono text-neutral-300 mt-1">Switch to Draw to freehand &middot; Lines between cards become arrows</p>
+                <p className="text-[10px] font-mono text-neutral-300 mt-1">Draw to sketch &middot; Lines between cards become arrows</p>
               </div>
             </div>
           )}
         </div>
 
-        {/* Activity log */}
         {showLog && (
           <div className="w-72 border-l border-neutral-100 bg-white overflow-y-auto shrink-0">
             <div className="p-4">
@@ -558,9 +551,7 @@ export default function TechnicalPage() {
                 {logEntries.map((node) => (
                   <div key={node.id} className="border-b border-neutral-50 pb-2">
                     <p className="text-[10px] font-medium text-black">{node.title}</p>
-                    <p className="text-[9px] font-mono text-neutral-400 mt-0.5">
-                      Created by {node.createdBy || "unknown"}
-                    </p>
+                    <p className="text-[9px] font-mono text-neutral-400 mt-0.5">Created by {node.createdBy || "unknown"}</p>
                     {node.lastEditedBy && node.lastEditedBy !== node.createdBy && (
                       <p className="text-[9px] font-mono text-neutral-400">Edited by {node.lastEditedBy}</p>
                     )}
