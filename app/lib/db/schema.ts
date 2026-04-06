@@ -102,6 +102,15 @@ export const canvasNodes = pgTable("canvas_nodes", {
   updatedAt: timestamp("updatedAt", { mode: "date" }).defaultNow(),
 });
 
+export const canvasStrokes = pgTable("canvas_strokes", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  points: text("points").notNull(), // JSON array of {x,y} points
+  color: text("color").default("#000000"),
+  width: integer("width").default(2),
+  createdBy: text("createdBy"),
+  createdAt: timestamp("createdAt", { mode: "date" }).defaultNow(),
+});
+
 export const chatMessages = pgTable("chat_messages", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: text("userId").notNull(),

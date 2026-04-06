@@ -16,23 +16,33 @@ const fetcher = async (url: string) => {
 
 const STATUS_OPTIONS: GoalStatus[] = ["not_started", "in_progress", "done", "blocked"];
 
+interface Stroke {
+  id: string;
+  points: { x: number; y: number }[];
+  color: string;
+  width: number;
+  createdBy: string | null;
+}
+
 export default function TechnicalPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const { data: nodes = [], mutate } = useSWR<CanvasNode[]>(
-    status === "authenticated" ? "/api/canvas" : null,
-    fetcher
+  const authenticated = status === "authenticated";
+  const { data: nodes = [], mutate: mutateNodes } = useSWR<CanvasNode[]>(
+    authenticated ? "/api/canvas" : null, fetcher
+  );
+  const { data: strokes = [], mutate: mutateStrokes } = useSWR<Stroke[]>(
+    authenticated ? "/api/canvas/strokes" : null, fetcher
   );
 
   const isAdmin = TECHNICAL_ADMINS.includes(session?.user?.email ?? "");
 
-  // Canvas state
+  // UI state
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [drawMode, setDrawMode] = useState(false);
-  const [drawFrom, setDrawFrom] = useState<string | null>(null);
   const [showLog, setShowLog] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [tool, setTool] = useState<"select" | "draw">("select");
 
   // Edit fields
   const [editTitle, setEditTitle] = useState("");
@@ -52,9 +62,36 @@ export default function TechnicalPage() {
   const draggingNode = useRef<string | null>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
 
+  // Drawing state
+  const [currentStroke, setCurrentStroke] = useState<{ x: number; y: number }[] | null>(null);
+  const isDrawing = useRef(false);
+
+  const CARD_W = 180;
+  const CARD_H = 50;
+
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login");
   }, [status, router]);
+
+  // Convert screen coords to canvas coords
+  function toCanvas(clientX: number, clientY: number) {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return { x: 0, y: 0 };
+    return {
+      x: (clientX - rect.left - pan.x) / zoom,
+      y: (clientY - rect.top - pan.y) / zoom,
+    };
+  }
+
+  // Find which node a point is inside
+  function nodeAtPoint(cx: number, cy: number): string | null {
+    for (const n of nodes) {
+      if (cx >= n.x && cx <= n.x + CARD_W && cy >= n.y && cy <= n.y + CARD_H) {
+        return n.id;
+      }
+    }
+    return null;
+  }
 
   // API helpers
   const createNode = useCallback(async (x: number, y: number) => {
@@ -64,14 +101,13 @@ export default function TechnicalPage() {
       body: JSON.stringify({ title: "New task", x, y }),
     });
     const node = await res.json();
-    mutate();
+    mutateNodes();
     setEditingId(node.id);
     setEditTitle(node.title);
-    setEditDesc("");
-    setEditOwner("");
-    setEditHours("");
+    setEditDesc(""); setEditOwner(""); setEditHours("");
     setEditStatus("not_started");
-  }, [mutate]);
+    setTool("select");
+  }, [mutateNodes]);
 
   const updateNode = useCallback(async (id: string, updates: Partial<CanvasNode>) => {
     await fetch(`/api/canvas/${id}`, {
@@ -79,12 +115,11 @@ export default function TechnicalPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updates),
     });
-    mutate();
-  }, [mutate]);
+    mutateNodes();
+  }, [mutateNodes]);
 
   const deleteNode = useCallback(async (id: string) => {
     await fetch(`/api/canvas/${id}`, { method: "DELETE" });
-    // Also remove this ID from any connectedTo arrays
     for (const n of nodes) {
       if (n.connectedTo.includes(id)) {
         await fetch(`/api/canvas/${n.id}`, {
@@ -94,90 +129,129 @@ export default function TechnicalPage() {
         });
       }
     }
-    mutate();
+    mutateNodes();
     setSelectedId(null);
     setConfirmDeleteId(null);
-  }, [mutate, nodes]);
+  }, [mutateNodes, nodes]);
+
+  const saveStroke = useCallback(async (points: { x: number; y: number }[]) => {
+    await fetch("/api/canvas/strokes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ points, color: "#000000", width: 2 }),
+    });
+    mutateStrokes();
+  }, [mutateStrokes]);
 
   const saveEdit = useCallback(() => {
     if (!editingId) return;
     updateNode(editingId, {
-      title: editTitle,
-      description: editDesc,
-      owner: editOwner,
-      estimatedHours: editHours ? parseInt(editHours) : null,
-      status: editStatus,
+      title: editTitle, description: editDesc, owner: editOwner,
+      estimatedHours: editHours ? parseInt(editHours) : null, status: editStatus,
     });
     setEditingId(null);
   }, [editingId, editTitle, editDesc, editOwner, editHours, editStatus, updateNode]);
 
-  // Canvas interactions
+  // Canvas mouse handlers
   function handleCanvasMouseDown(e: React.MouseEvent) {
     if (e.target !== canvasRef.current) return;
+
+    if (tool === "draw") {
+      const pt = toCanvas(e.clientX, e.clientY);
+      isDrawing.current = true;
+      setCurrentStroke([pt]);
+      return;
+    }
+
+    // Pan mode
     isPanning.current = true;
     panStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
   }
 
   function handleCanvasMouseMove(e: React.MouseEvent) {
+    // Drawing
+    if (isDrawing.current && currentStroke) {
+      const pt = toCanvas(e.clientX, e.clientY);
+      setCurrentStroke([...currentStroke, pt]);
+      return;
+    }
+
+    // Panning
     if (isPanning.current) {
       setPan({ x: e.clientX - panStart.current.x, y: e.clientY - panStart.current.y });
       return;
     }
+
+    // Dragging node
     if (draggingNode.current) {
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
       const x = (e.clientX - rect.left - pan.x) / zoom - dragOffset.current.x;
       const y = (e.clientY - rect.top - pan.y) / zoom - dragOffset.current.y;
-      // Optimistic local update
-      mutate(
+      mutateNodes(
         nodes.map((n) => n.id === draggingNode.current ? { ...n, x: Math.round(x), y: Math.round(y) } : n),
         false
       );
     }
   }
 
-  function handleCanvasMouseUp() {
+  function handleCanvasMouseUp(e: React.MouseEvent) {
+    // Finish drawing
+    if (isDrawing.current && currentStroke && currentStroke.length > 1) {
+      isDrawing.current = false;
+      const startPt = currentStroke[0];
+      const endPt = currentStroke[currentStroke.length - 1];
+      const startNode = nodeAtPoint(startPt.x, startPt.y);
+      const endNode = nodeAtPoint(endPt.x, endPt.y);
+
+      if (startNode && endNode && startNode !== endNode) {
+        // Stroke connects two cards — create arrow connection instead of freehand
+        const from = nodes.find((n) => n.id === startNode);
+        if (from && !from.connectedTo.includes(endNode)) {
+          updateNode(startNode, { connectedTo: [...from.connectedTo, endNode] });
+        }
+      } else {
+        // Save as freehand stroke
+        saveStroke(currentStroke);
+      }
+      setCurrentStroke(null);
+      return;
+    }
+    isDrawing.current = false;
+    setCurrentStroke(null);
+
+    // Finish panning
     isPanning.current = false;
+
+    // Finish dragging
     if (draggingNode.current) {
       const node = nodes.find((n) => n.id === draggingNode.current);
-      if (node) {
-        updateNode(draggingNode.current, { x: node.x, y: node.y });
-      }
+      if (node) updateNode(draggingNode.current, { x: node.x, y: node.y });
       draggingNode.current = null;
     }
   }
 
   function handleCanvasDoubleClick(e: React.MouseEvent) {
     if (e.target !== canvasRef.current) return;
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const x = (e.clientX - rect.left - pan.x) / zoom;
-    const y = (e.clientY - rect.top - pan.y) / zoom;
-    createNode(Math.round(x), Math.round(y));
+    const pt = toCanvas(e.clientX, e.clientY);
+    createNode(Math.round(pt.x), Math.round(pt.y));
   }
 
   function handleWheel(e: React.WheelEvent) {
     e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setZoom((z) => Math.max(0.3, Math.min(3, z * delta)));
+    setZoom((z) => Math.max(0.3, Math.min(3, z * (e.deltaY > 0 ? 0.9 : 1.1))));
   }
 
   function handleNodeMouseDown(e: React.MouseEvent, nodeId: string) {
     e.stopPropagation();
-    if (drawMode) {
-      if (!drawFrom) {
-        setDrawFrom(nodeId);
-      } else if (drawFrom !== nodeId) {
-        // Create connection
-        const from = nodes.find((n) => n.id === drawFrom);
-        if (from && !from.connectedTo.includes(nodeId)) {
-          updateNode(drawFrom, { connectedTo: [...from.connectedTo, nodeId] });
-        }
-        setDrawFrom(null);
-      }
+    if (tool === "draw") {
+      // Start drawing from this node
+      const pt = toCanvas(e.clientX, e.clientY);
+      isDrawing.current = true;
+      setCurrentStroke([pt]);
       return;
     }
-    // Start drag
+    // Drag node
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
     const node = nodes.find((n) => n.id === nodeId);
@@ -192,23 +266,18 @@ export default function TechnicalPage() {
 
   function startEdit(node: CanvasNode) {
     setEditingId(node.id);
-    setEditTitle(node.title);
-    setEditDesc(node.description);
-    setEditOwner(node.owner);
-    setEditHours(node.estimatedHours?.toString() || "");
+    setEditTitle(node.title); setEditDesc(node.description);
+    setEditOwner(node.owner); setEditHours(node.estimatedHours?.toString() || "");
     setEditStatus(node.status);
   }
 
-  // Compute arrow paths
-  function getArrows(): { from: CanvasNode; to: CanvasNode }[] {
-    const arrows: { from: CanvasNode; to: CanvasNode }[] = [];
-    for (const n of nodes) {
-      for (const targetId of n.connectedTo) {
-        const target = nodes.find((t) => t.id === targetId);
-        if (target) arrows.push({ from: n, to: target });
-      }
+  // Arrows from connectedTo
+  const arrows: { from: CanvasNode; to: CanvasNode }[] = [];
+  for (const n of nodes) {
+    for (const tid of n.connectedTo) {
+      const t = nodes.find((x) => x.id === tid);
+      if (t) arrows.push({ from: n, to: t });
     }
-    return arrows;
   }
 
   // Activity log
@@ -224,46 +293,51 @@ export default function TechnicalPage() {
     );
   }
 
-  const arrows = getArrows();
-  const CARD_W = 180;
-  const CARD_H = 40;
+  // SVG path from points
+  function pointsToPath(pts: { x: number; y: number }[]): string {
+    if (pts.length < 2) return "";
+    return `M ${pts[0].x} ${pts[0].y} ` + pts.slice(1).map((p) => `L ${p.x} ${p.y}`).join(" ");
+  }
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
       {/* Top bar */}
       <nav className="w-full border-b border-neutral-100 shrink-0 z-20 bg-white">
-        <div className="max-w-full mx-auto px-6 flex items-center justify-between h-12">
-          <div className="flex items-center gap-6">
+        <div className="max-w-full mx-auto px-4 flex items-center justify-between h-12">
+          <div className="flex items-center gap-4">
+            <Link href="/" className="text-[10px] font-mono text-neutral-400 hover:text-black flex items-center gap-1">
+              &larr; Back
+            </Link>
+            <span className="text-neutral-200">|</span>
             <Link href="/" className="text-base tracking-tight"><Logo /></Link>
             <span className="text-xs font-mono uppercase tracking-widest text-black border-b border-black pb-0.5">Technical</span>
           </div>
-          <div className="flex items-center gap-4">
-            {/* Draw mode toggle */}
-            <button
-              onClick={() => { setDrawMode(!drawMode); setDrawFrom(null); }}
+          <div className="flex items-center gap-3">
+            {/* Tool selector */}
+            <div className="flex border border-neutral-200 rounded overflow-hidden">
+              <button
+                onClick={() => setTool("select")}
+                className={`text-[10px] font-mono px-3 py-1 transition-colors ${
+                  tool === "select" ? "bg-black text-white" : "bg-transparent text-neutral-500 hover:bg-neutral-50"
+                }`}
+              >
+                Select
+              </button>
+              <button
+                onClick={() => setTool("draw")}
+                className={`text-[10px] font-mono px-3 py-1 transition-colors ${
+                  tool === "draw" ? "bg-black text-white" : "bg-transparent text-neutral-500 hover:bg-neutral-50"
+                }`}
+              >
+                Draw
+              </button>
+            </div>
+            <button onClick={() => setShowLog(!showLog)}
               className={`text-[10px] font-mono px-3 py-1 rounded border transition-colors ${
-                drawMode
-                  ? "bg-blue-500 text-white border-blue-500"
-                  : "bg-transparent text-neutral-500 border-neutral-200 hover:border-black"
-              }`}
-            >
-              {drawMode ? (drawFrom ? "Click target..." : "Draw arrows") : "Draw mode"}
-            </button>
-            {/* Log toggle */}
-            <button
-              onClick={() => setShowLog(!showLog)}
-              className={`text-[10px] font-mono px-3 py-1 rounded border transition-colors ${
-                showLog
-                  ? "bg-black text-white border-black"
-                  : "bg-transparent text-neutral-500 border-neutral-200 hover:border-black"
-              }`}
-            >
-              Log
-            </button>
-            {/* Zoom */}
+                showLog ? "bg-black text-white border-black" : "bg-transparent text-neutral-500 border-neutral-200 hover:border-black"
+              }`}>Log</button>
             <span className="text-[10px] font-mono text-neutral-400">{Math.round(zoom * 100)}%</span>
             <button onClick={() => setZoom(1)} className="text-[10px] font-mono text-neutral-400 hover:text-black">Reset</button>
-            {/* User */}
             {session?.user && (
               <div className="flex items-center gap-2 ml-2 pl-2 border-l border-neutral-200">
                 <span className="text-[10px] font-mono text-neutral-400">{session.user.email}</span>
@@ -278,12 +352,14 @@ export default function TechnicalPage() {
         {/* Canvas */}
         <div
           ref={canvasRef}
-          className={`flex-1 relative overflow-hidden ${drawMode ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}
+          className={`flex-1 relative overflow-hidden ${
+            tool === "draw" ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"
+          }`}
           style={{ background: "#fafafa" }}
           onMouseDown={handleCanvasMouseDown}
           onMouseMove={handleCanvasMouseMove}
           onMouseUp={handleCanvasMouseUp}
-          onMouseLeave={handleCanvasMouseUp}
+          onMouseLeave={() => { isPanning.current = false; isDrawing.current = false; setCurrentStroke(null); if (draggingNode.current) { const n = nodes.find((x) => x.id === draggingNode.current); if (n) updateNode(draggingNode.current, { x: n.x, y: n.y }); draggingNode.current = null; } }}
           onDoubleClick={handleCanvasDoubleClick}
           onWheel={handleWheel}
         >
@@ -296,14 +372,15 @@ export default function TechnicalPage() {
 
           {/* Transform layer */}
           <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: "0 0" }}>
-            {/* SVG arrows */}
+            {/* SVG layer: arrows + strokes */}
             <svg className="absolute" style={{ width: "10000px", height: "10000px", pointerEvents: "none" }}>
               <defs>
                 <marker id="canvas-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
                   <polygon points="0 0, 8 3, 0 6" fill="#9ca3af" />
                 </marker>
               </defs>
-              {arrows.map(({ from, to }, i) => {
+              {/* Connection arrows */}
+              {arrows.map(({ from, to }) => {
                 const x1 = from.x + CARD_W / 2;
                 const y1 = from.y + CARD_H / 2;
                 const x2 = to.x + CARD_W / 2;
@@ -311,37 +388,39 @@ export default function TechnicalPage() {
                 const mx = (x1 + x2) / 2;
                 const my = (y1 + y2) / 2 - 30;
                 return (
-                  <path
-                    key={`${from.id}-${to.id}`}
+                  <path key={`${from.id}-${to.id}`}
                     d={`M ${x1} ${y1} Q ${mx} ${my} ${x2} ${y2}`}
-                    fill="none"
-                    stroke="#d1d5db"
-                    strokeWidth={2}
-                    markerEnd="url(#canvas-arrow)"
-                  />
+                    fill="none" stroke="#9ca3af" strokeWidth={2}
+                    markerEnd="url(#canvas-arrow)" />
                 );
               })}
+              {/* Saved freehand strokes */}
+              {strokes.map((s) => (
+                <path key={s.id} d={pointsToPath(s.points)}
+                  fill="none" stroke={s.color || "#000"} strokeWidth={s.width || 2}
+                  strokeLinecap="round" strokeLinejoin="round" opacity={0.6} />
+              ))}
+              {/* Current drawing stroke */}
+              {currentStroke && currentStroke.length > 1 && (
+                <path d={pointsToPath(currentStroke)}
+                  fill="none" stroke="#000" strokeWidth={2}
+                  strokeLinecap="round" strokeLinejoin="round" opacity={0.4} />
+              )}
             </svg>
 
             {/* Nodes */}
             {nodes.map((node) => {
-              const cfg = STATUS_CONFIG[node.status] || STATUS_CONFIG.not_started;
               const isSelected = selectedId === node.id;
               const isEditing = editingId === node.id;
 
               return (
-                <div
-                  key={node.id}
-                  className={`absolute select-none transition-shadow ${
-                    drawMode && drawFrom === node.id ? "ring-2 ring-blue-400" : ""
-                  }`}
+                <div key={node.id}
+                  className="absolute select-none"
                   style={{ left: node.x, top: node.y, width: CARD_W, zIndex: isSelected ? 20 : 1 }}
                   onMouseDown={(e) => handleNodeMouseDown(e, node.id)}
                 >
                   <div className={`border rounded-lg transition-all ${
-                    isSelected
-                      ? "bg-white border-black shadow-md"
-                      : "bg-white border-neutral-200 hover:border-neutral-400 shadow-sm"
+                    isSelected ? "bg-white border-black shadow-md" : "bg-white border-neutral-200 hover:border-neutral-400 shadow-sm"
                   }`}>
                     {isEditing ? (
                       <div className="p-3 space-y-2" onMouseDown={(e) => e.stopPropagation()}>
@@ -373,9 +452,7 @@ export default function TechnicalPage() {
                           <span className="text-[10px] font-medium text-black truncate">{node.title}</span>
                         </div>
                         {node.owner && <p className="text-[9px] font-mono text-neutral-400 mt-0.5">{node.owner}</p>}
-                        {node.estimatedHours && <span className="text-[8px] font-mono text-neutral-400">~{node.estimatedHours}h</span>}
-
-                        {/* Controls — show on select */}
+                        {node.estimatedHours != null && <span className="text-[8px] font-mono text-neutral-400">~{node.estimatedHours}h</span>}
                         {isSelected && (
                           <div className="flex items-center gap-1 mt-2 pt-1.5 border-t border-neutral-100" onMouseDown={(e) => e.stopPropagation()}>
                             <select value={node.status}
@@ -404,18 +481,18 @@ export default function TechnicalPage() {
             })}
           </div>
 
-          {/* Instructions */}
-          {nodes.length === 0 && (
+          {/* Empty state */}
+          {nodes.length === 0 && strokes.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="text-center">
                 <p className="text-sm font-mono text-neutral-400">Double-click to add a task</p>
-                <p className="text-[10px] font-mono text-neutral-300 mt-1">Drag to move &middot; Click to select &middot; Draw mode for arrows</p>
+                <p className="text-[10px] font-mono text-neutral-300 mt-1">Switch to Draw to freehand &middot; Lines between cards become arrows</p>
               </div>
             </div>
           )}
         </div>
 
-        {/* Activity log panel */}
+        {/* Activity log */}
         {showLog && (
           <div className="w-72 border-l border-neutral-100 bg-white overflow-y-auto shrink-0">
             <div className="p-4">
@@ -428,18 +505,14 @@ export default function TechnicalPage() {
                       Created by {node.createdBy || "unknown"}
                     </p>
                     {node.lastEditedBy && node.lastEditedBy !== node.createdBy && (
-                      <p className="text-[9px] font-mono text-neutral-400">
-                        Last edited by {node.lastEditedBy}
-                      </p>
+                      <p className="text-[9px] font-mono text-neutral-400">Edited by {node.lastEditedBy}</p>
                     )}
                     <p className="text-[8px] font-mono text-neutral-300 mt-0.5">
                       {new Date(node.updatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                     </p>
                   </div>
                 ))}
-                {logEntries.length === 0 && (
-                  <p className="text-[10px] font-mono text-neutral-300">No activity yet</p>
-                )}
+                {logEntries.length === 0 && <p className="text-[10px] font-mono text-neutral-300">No activity yet</p>}
               </div>
             </div>
           </div>
