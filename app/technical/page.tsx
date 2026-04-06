@@ -35,7 +35,7 @@ interface Notification {
   createdAt: string;
 }
 
-const ERASER_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='10' fill='none' stroke='%23666' stroke-width='2'/%3E%3C/svg%3E") 12 12, auto`;
+const ERASER_CURSOR =`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='10' fill='none' stroke='%23666' stroke-width='2'/%3E%3C/svg%3E") 12 12, auto`;
 
 export default function TechnicalPage() {
   const { data: session, status } = useSession();
@@ -83,17 +83,37 @@ export default function TechnicalPage() {
   const CARD_W = 180;
   const CARD_H = 50;
   const ERASE_R = 20;
-  const MIN_POINT_DIST = 4; // px — skip points closer than this
+  const MIN_POINT_DIST = 4;
+
 
   useEffect(() => { if (status === "unauthenticated") router.push("/login"); }, [status, router]);
 
-  // Prevent browser zoom on the canvas — needs { passive: false } which React can't do
+  // Prevent browser zoom on the canvas
   useEffect(() => {
     const el = canvasRef.current;
     if (!el) return;
-    const handler = (e: WheelEvent) => { e.preventDefault(); };
-    el.addEventListener("wheel", handler, { passive: false });
-    return () => el.removeEventListener("wheel", handler);
+    const wheelHandler = (e: WheelEvent) => { e.preventDefault(); };
+    el.addEventListener("wheel", wheelHandler, { passive: false });
+
+    // Rapid click reset: 4 clicks on empty canvas within 1.5s resets view
+    const clicks: number[] = [];
+    const clickHandler = (e: MouseEvent) => {
+      if ((e.target as HTMLElement).closest("[data-card]")) return;
+      const now = Date.now();
+      while (clicks.length > 0 && now - clicks[0] > 1500) clicks.shift();
+      clicks.push(now);
+      if (clicks.length >= 4) {
+        clicks.length = 0;
+        setZoom(1);
+        setPan({ x: 50, y: 50 });
+      }
+    };
+    el.addEventListener("click", clickHandler);
+
+    return () => {
+      el.removeEventListener("wheel", wheelHandler);
+      el.removeEventListener("click", clickHandler);
+    };
   }, []);
 
   function toCanvas(clientX: number, clientY: number) {
@@ -386,7 +406,7 @@ export default function TechnicalPage() {
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
-      <nav className="w-full border-b border-neutral-100 shrink-0 z-20 bg-white">
+      <nav className="w-full border-b border-neutral-100 shrink-0 bg-white" style={{ position: "relative", zIndex: 50 }}>
         <div className="max-w-full mx-auto px-4 flex items-center justify-between h-12">
           <div className="flex items-center gap-4">
             <Link href="/" className="text-[10px] font-mono text-neutral-400 hover:text-black">&larr; Back</Link>
