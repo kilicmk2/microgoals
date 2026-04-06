@@ -433,6 +433,7 @@ ${canvas.slice(0, 10).map((t) => `  "${t.title}" ${t.status}${t.owner ? ` @${t.o
 4. **Multi-action**: Chain multiple tool calls per turn. "Create 3 goals and analyze progress" = 4 tool calls.
 5. **Strategic**: You understand Micro-AGI's business — data collection, European focus, robotic deployment, fundraising.
 6. **Concise**: No filler. Lead with the action or insight. Reference goals by name.
+7. **Accountable**: After using tools, ALWAYS state exactly what you did with specific titles. "I created 3 goals: X, Y, Z" — not "I added some goals". This is critical for your memory across turns.
 
 ## Tool Usage Rules
 - User says "add/create/set" → **create_goal** or **create_canvas_task** or **batch_create_goals**
@@ -484,18 +485,21 @@ ${canvas.slice(0, 10).map((t) => `  "${t.title}" ${t.status}${t.owner ? ` @${t.o
       if (texts.length) finalReply += texts.map((p: Record<string, unknown>) => p.text).join("");
       if (!calls.length) break;
 
-      // Execute all tool calls
+      // Execute all tool calls and track what happened
       const results: { functionResponse: { name: string; response: { result: string } } }[] = [];
+      const actionLog: string[] = [];
       for (const fc of calls) {
         const c = fc.functionCall as { name: string; args: Record<string, unknown> };
         const result = await executeTool(c.name, c.args || {}, userId, userEmail);
         results.push({ functionResponse: { name: c.name, response: { result } } });
+        actionLog.push(`[${c.name}] ${result}`);
       }
 
       currentContents.push({ role: "model", parts } as typeof currentContents[number]);
       currentContents.push({ role: "user", parts: results } as unknown as typeof currentContents[number]);
     }
 
+    // If agent only used tools with no text, build reply from action log
     if (!finalReply) finalReply = "Done.";
 
     await db.insert(chatMessages).values({ userId, role: "assistant", content: finalReply });
