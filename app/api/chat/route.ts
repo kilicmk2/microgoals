@@ -122,6 +122,17 @@ const TOOLS = [
     },
   },
   {
+    name: "delete_goal",
+    description: "Delete a goal by title search. Use when user explicitly asks to remove/delete a goal.",
+    parameters: {
+      type: "object",
+      properties: {
+        titleSearch: { type: "string", description: "Partial title match to find the goal to delete" },
+      },
+      required: ["titleSearch"],
+    },
+  },
+  {
     name: "batch_create_goals",
     description: "Create multiple goals at once. Use when extracting from meeting notes or setting up a plan.",
     parameters: {
@@ -173,6 +184,19 @@ async function executeTool(name: string, args: Record<string, unknown>, userId: 
         approved: !needsApproval, proposedBy: needsApproval ? email : null,
       }).returning();
       return `Created: "${created.title}" [${created.horizon}/${created.category}]${needsApproval ? " (pending approval)" : ""}`;
+    }
+
+    case "delete_goal": {
+      const search = (args.titleSearch as string).toLowerCase();
+      const all = await db.select().from(goals);
+      const match = all.find((g) => g.title.toLowerCase().includes(search));
+      if (!match) return `No goal found matching "${args.titleSearch}"`;
+      // Permission check: master/exec can delete anything, others only personal
+      if (match.category === "company" && !isMaster && !isExec) return `Permission denied: only admins can delete company goals.`;
+      if (match.category === "executive" && !isExec) return `Permission denied: only executives can delete executive goals.`;
+      if (match.category === "personal" && match.userId !== userId) return `Permission denied: can't delete another user's personal goal.`;
+      await db.delete(goals).where(eq(goals.id, match.id));
+      return `Deleted goal: "${match.title}"`;
     }
 
     case "update_goal": {
@@ -413,6 +437,7 @@ ${canvas.slice(0, 10).map((t) => `  "${t.title}" ${t.status}${t.owner ? ` @${t.o
 ## Tool Usage Rules
 - User says "add/create/set" → **create_goal** or **create_canvas_task** or **batch_create_goals**
 - User says "update/change/mark/move" → **update_goal**
+- User says "delete/remove" → **delete_goal**
 - User says "show/list/what are" → **list_goals** or **list_canvas_tasks**
 - User says "analyze/assess/how are we" → **analyze_goals**
 - User says "remember/note/save" → **save_memory**

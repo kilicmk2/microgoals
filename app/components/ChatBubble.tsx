@@ -19,14 +19,11 @@ export default function ChatBubble({ onSendMessage, onClearChat, initialMessages
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const [pendingMessages, setPendingMessages] = useState<Message[]>([]);
   const endRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (initialMessages.length > 0 && messages.length === 0) {
-      setMessages(initialMessages);
-    }
-  }, [initialMessages, messages.length]);
+  // Merge server messages with any pending local ones
+  const messages = [...initialMessages, ...pendingMessages];
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -40,18 +37,21 @@ export default function ChatBubble({ onSendMessage, onClearChat, initialMessages
     setInput("");
 
     const userMsg: Message = { id: crypto.randomUUID(), role: "user", content: msg };
-    setMessages((prev) => [...prev, userMsg]);
+    setPendingMessages([userMsg]);
     setLoading(true);
 
     try {
       const result = await onSendMessage(msg);
+      // Server saved both user + assistant messages — SWR will refetch
+      // Add error as pending if something went wrong
       if (result.error) {
-        setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "assistant", content: `Error: ${result.error}` }]);
-      } else if (result.reply) {
-        setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "assistant", content: result.reply! }]);
+        setPendingMessages([userMsg, { id: crypto.randomUUID(), role: "assistant", content: `Error: ${result.error}` }]);
+      } else {
+        // Clear pending — server has the messages now via SWR refetch
+        setPendingMessages([]);
       }
     } catch {
-      setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "assistant", content: "Failed to get response." }]);
+      setPendingMessages([userMsg, { id: crypto.randomUUID(), role: "assistant", content: "Failed to get response." }]);
     } finally {
       setLoading(false);
     }
@@ -59,7 +59,7 @@ export default function ChatBubble({ onSendMessage, onClearChat, initialMessages
 
   async function handleClear() {
     await onClearChat();
-    setMessages([]);
+    setPendingMessages([]);
   }
 
   // Format assistant messages: bold **text**, bullet points, etc.
