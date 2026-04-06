@@ -42,7 +42,7 @@ export default function TechnicalPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showLog, setShowLog] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [tool, setTool] = useState<"select" | "draw">("select");
+  const [tool, setTool] = useState<"select" | "draw" | "eraser">("select");
 
   // Edit fields
   const [editTitle, setEditTitle] = useState("");
@@ -92,6 +92,41 @@ export default function TechnicalPage() {
     }
     return null;
   }
+
+  // Check if point is near any card (within padding px of card edge)
+  const NEAR_CARD_PADDING = 40;
+  function isNearCard(cx: number, cy: number): boolean {
+    for (const n of nodes) {
+      if (
+        cx >= n.x - NEAR_CARD_PADDING && cx <= n.x + CARD_W + NEAR_CARD_PADDING &&
+        cy >= n.y - NEAR_CARD_PADDING && cy <= n.y + CARD_H + NEAR_CARD_PADDING
+      ) return true;
+    }
+    return false;
+  }
+
+  // Find stroke near a point (for eraser)
+  function strokeNearPoint(cx: number, cy: number): string | null {
+    const THRESHOLD = 15;
+    for (const s of strokes) {
+      for (const pt of s.points) {
+        const dx = pt.x - cx;
+        const dy = pt.y - cy;
+        if (dx * dx + dy * dy < THRESHOLD * THRESHOLD) return s.id;
+      }
+    }
+    return null;
+  }
+
+  // Delete a stroke
+  const deleteStroke = useCallback(async (id: string) => {
+    await fetch("/api/canvas/strokes", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    mutateStrokes();
+  }, [mutateStrokes]);
 
   // API helpers
   const createNode = useCallback(async (x: number, y: number) => {
@@ -156,14 +191,35 @@ export default function TechnicalPage() {
   function handleCanvasMouseDown(e: React.MouseEvent) {
     if (e.target !== canvasRef.current) return;
 
+    const pt = toCanvas(e.clientX, e.clientY);
+
+    if (tool === "eraser") {
+      const sid = strokeNearPoint(pt.x, pt.y);
+      if (sid) deleteStroke(sid);
+      return;
+    }
+
     if (tool === "draw") {
-      const pt = toCanvas(e.clientX, e.clientY);
+      // If near a card, act as select instead of drawing
+      if (isNearCard(pt.x, pt.y)) {
+        const nodeId = nodeAtPoint(pt.x, pt.y);
+        if (nodeId) {
+          setSelectedId(nodeId);
+          // Start drag
+          const node = nodes.find((n) => n.id === nodeId);
+          if (node) {
+            draggingNode.current = nodeId;
+            dragOffset.current = { x: pt.x - node.x, y: pt.y - node.y };
+          }
+        }
+        return;
+      }
       isDrawing.current = true;
       setCurrentStroke([pt]);
       return;
     }
 
-    // Pan mode
+    // Pan mode (select tool on background)
     isPanning.current = true;
     panStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
   }
@@ -244,22 +300,15 @@ export default function TechnicalPage() {
 
   function handleNodeMouseDown(e: React.MouseEvent, nodeId: string) {
     e.stopPropagation();
-    if (tool === "draw") {
-      // Start drawing from this node
-      const pt = toCanvas(e.clientX, e.clientY);
-      isDrawing.current = true;
-      setCurrentStroke([pt]);
-      return;
-    }
-    // Drag node
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
+    if (tool === "eraser") return; // eraser only affects strokes, not cards
+    // In any mode (select or draw), clicking a card selects/drags it
     const node = nodes.find((n) => n.id === nodeId);
     if (!node) return;
     draggingNode.current = nodeId;
+    const pt = toCanvas(e.clientX, e.clientY);
     dragOffset.current = {
-      x: (e.clientX - rect.left - pan.x) / zoom - node.x,
-      y: (e.clientY - rect.top - pan.y) / zoom - node.y,
+      x: pt.x - node.x,
+      y: pt.y - node.y,
     };
     setSelectedId(nodeId);
   }
@@ -331,6 +380,14 @@ export default function TechnicalPage() {
               >
                 Draw
               </button>
+              <button
+                onClick={() => setTool("eraser")}
+                className={`text-[10px] font-mono px-3 py-1 transition-colors ${
+                  tool === "eraser" ? "bg-red-500 text-white" : "bg-transparent text-neutral-500 hover:bg-neutral-50"
+                }`}
+              >
+                Eraser
+              </button>
             </div>
             <button onClick={() => setShowLog(!showLog)}
               className={`text-[10px] font-mono px-3 py-1 rounded border transition-colors ${
@@ -353,7 +410,7 @@ export default function TechnicalPage() {
         <div
           ref={canvasRef}
           className={`flex-1 relative overflow-hidden ${
-            tool === "draw" ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"
+            tool === "eraser" ? "cursor-pointer" : tool === "draw" ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"
           }`}
           style={{ background: "#fafafa" }}
           onMouseDown={handleCanvasMouseDown}
