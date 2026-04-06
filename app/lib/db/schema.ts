@@ -85,6 +85,23 @@ export const goals = pgTable("goals", {
   updatedAt: timestamp("updatedAt", { mode: "date" }).defaultNow(),
 });
 
+export const canvasNodes = pgTable("canvas_nodes", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: text("userId"),
+  title: text("title").notNull(),
+  description: text("description").default(""),
+  status: text("status").default("not_started").notNull(),
+  owner: text("owner").default(""),
+  estimatedHours: integer("estimatedHours"),
+  x: integer("x").default(100),
+  y: integer("y").default(100),
+  connectedTo: text("connectedTo").default("[]"),
+  createdBy: text("createdBy"),
+  lastEditedBy: text("lastEditedBy"),
+  createdAt: timestamp("createdAt", { mode: "date" }).defaultNow(),
+  updatedAt: timestamp("updatedAt", { mode: "date" }).defaultNow(),
+});
+
 export const chatMessages = pgTable("chat_messages", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: text("userId").notNull(),

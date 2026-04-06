@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { TimeHorizon, GoalCategory, WorkStream, HORIZONS, EXECUTIVE_HORIZONS, EXECUTIVE_EMAILS, MASTER_EMAIL } from "./lib/store";
 import { useGoals, useChatMessages } from "./lib/hooks";
 import HorizonNav from "./components/HorizonNav";
@@ -189,6 +190,12 @@ export default function Home() {
                 Executive
               </button>
             )}
+            <Link
+              href="/technical"
+              className="text-xs font-mono uppercase tracking-widest transition-colors pb-0.5 text-neutral-400 hover:text-neutral-600"
+            >
+              Technical
+            </Link>
             {session?.user && (
               <div className="flex items-center gap-3 ml-4 pl-4 border-l border-neutral-200">
                 <span className="text-[10px] font-mono text-neutral-400">

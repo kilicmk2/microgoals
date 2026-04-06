@@ -38,6 +38,24 @@ export interface Goal {
 
 export const MASTER_EMAIL = "bercan.kilic@micro-agi.com";
 export const EXECUTIVE_EMAILS = ["addy@micro-agi.com", "bercan.kilic@micro-agi.com"];
+export const TECHNICAL_ADMINS = ["nico.nussbaum@micro-agi.com", "bercan.kilic@micro-agi.com"];
+
+export interface CanvasNode {
+  id: string;
+  userId: string | null;
+  title: string;
+  description: string;
+  status: GoalStatus;
+  owner: string;
+  estimatedHours: number | null;
+  x: number;
+  y: number;
+  connectedTo: string[];
+  createdBy: string | null;
+  lastEditedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export const WORK_STREAMS: { key: WorkStream; label: string }[] = [
   { key: "network", label: "Network" },
