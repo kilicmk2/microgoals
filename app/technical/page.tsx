@@ -111,9 +111,12 @@ export default function TechnicalPage() {
   useEffect(() => {
     const el = canvasRef.current;
     if (!el) return;
-    const h = (e: WheelEvent) => { e.preventDefault(); };
+    const h = (e: WheelEvent) => { e.preventDefault(); e.stopPropagation(); };
     el.addEventListener("wheel", h, { passive: false });
-    return () => el.removeEventListener("wheel", h);
+    // Also block on the document level to prevent browser zoom
+    const docH = (e: WheelEvent) => { if (e.ctrlKey || e.metaKey) e.preventDefault(); };
+    document.addEventListener("wheel", docH, { passive: false });
+    return () => { el.removeEventListener("wheel", h); document.removeEventListener("wheel", docH); };
   }, []);
 
   function pushUndo(a: UndoAction) { setUndoStack((s) => [...s.slice(-30), a]); setRedoStack([]); }
