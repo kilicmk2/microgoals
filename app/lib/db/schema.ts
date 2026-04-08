@@ -102,6 +102,16 @@ export const canvasNodes = pgTable("canvas_nodes", {
   updatedAt: timestamp("updatedAt", { mode: "date" }).defaultNow(),
 });
 
+// Full canvas snapshots for undo/revert — stores JSON of all nodes + strokes
+export const canvasSnapshots = pgTable("canvas_snapshots", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  label: text("label").default("auto"), // "auto", "clear", "manual"
+  nodesJson: text("nodesJson").notNull(), // JSON array of all canvas_nodes
+  strokesJson: text("strokesJson").notNull(), // JSON array of all canvas_strokes
+  createdBy: text("createdBy"),
+  createdAt: timestamp("createdAt", { mode: "date" }).defaultNow(),
+});
+
 export const canvasStrokes = pgTable("canvas_strokes", {
   id: uuid("id").defaultRandom().primaryKey(),
   points: text("points").notNull(), // JSON array of {x,y} points

@@ -68,6 +68,7 @@ export default function TechnicalPage() {
   const { data: strokes = [], mutate: mutateStrokes } = useSWR<Stroke[]>(authenticated ? "/api/canvas/strokes" : null, fetcher);
   const { data: team = [] } = useSWR<string[]>(authenticated ? "/api/team" : null, fetcher);
   const { data: notifs = [], mutate: mutateNotifs } = useSWR<Notification[]>(authenticated ? "/api/notifications" : null, fetcher);
+  const { data: snapshots = [], mutate: mutateSnapshots } = useSWR<{ id: string; label: string; createdBy: string; createdAt: string }[]>(authenticated ? "/api/canvas/snapshots" : null, fetcher);
   const { messages: chatMsgs, sendMessage: chatSend, clearChat } = useChatMessages("technical");
   const chatSendMessage = useCallback(async (c: string) => { const r = await chatSend(c); mutateNodes(); return r; }, [chatSend, mutateNodes]);
 
@@ -83,6 +84,7 @@ export default function TechnicalPage() {
   const [showTimeline, setShowTimeline] = useState(true);
   const [timelineWeeks, setTimelineWeeks] = useState(12);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [arrowDrag, setArrowDrag] = useState<{ fromId: string; mx: number; my: number } | null>(null);
   // Selection rectangle
   const [selRect, setSelRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -200,6 +202,8 @@ export default function TechnicalPage() {
     const tempId = `temp-${Date.now()}`;
     const tempNode: CanvasNode = { id: tempId, userId: null, title: "New task", description: "", status: "not_started", owner: "", estimatedHours: null, x, y, connectedTo: [], createdBy: null, lastEditedBy: null, createdAt: "", updatedAt: "" };
     mutateNodes([...nodes, tempNode], false);
+    // Auto-snapshot before change
+    fetch("/api/canvas/snapshots", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ label: "auto" }) });
     const res = await fetch("/api/canvas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "New task", x, y }) });
     const node = await res.json();
     mutateNodes();
@@ -252,7 +256,20 @@ export default function TechnicalPage() {
     setRenamingId(null);
   }
 
+  // Save a snapshot of current canvas state
+  async function saveSnapshot(label = "auto") {
+    await fetch("/api/canvas/snapshots", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ label }) });
+  }
+
+  // Restore a snapshot
+  async function restoreSnapshot(snapshotId: string) {
+    await fetch("/api/canvas/snapshots", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshotId }) });
+    mutateNodes(); mutateStrokes(); setSelectedIds(new Set()); setShowHistory(false);
+  }
+
   async function clearAll() {
+    // Auto-snapshot before clear so we can revert
+    await saveSnapshot("pre-clear");
     await Promise.all([
       ...nodes.map((n) => fetch(`/api/canvas/${n.id}`, { method: "DELETE" })),
       ...strokes.map((s) => fetch("/api/canvas/strokes", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: s.id }) })),
@@ -488,6 +505,7 @@ export default function TechnicalPage() {
             )}
             <span className="text-neutral-200">|</span>
             <button onClick={() => setShowLog(!showLog)} className={`text-[10px] font-mono px-2.5 py-1 rounded border transition-colors ${showLog ? "bg-black text-white border-black" : "bg-transparent text-neutral-500 border-neutral-200"}`}>Log</button>
+            <button onClick={() => { setShowHistory(!showHistory); if (!showHistory) mutateSnapshots(); }} className={`text-[10px] font-mono px-2.5 py-1 rounded border transition-colors ${showHistory ? "bg-black text-white border-black" : "bg-transparent text-neutral-500 border-neutral-200"}`}>History</button>
             {isAdmin && (confirmClear
               ? <div className="flex items-center gap-1 border border-red-300 rounded px-2 py-0.5 bg-red-50"><span className="text-[9px] font-mono text-red-600">Clear all?</span><button onClick={clearAll} className="text-[9px] font-mono text-red-600 font-bold px-1">Yes</button><button onClick={() => setConfirmClear(false)} className="text-[9px] font-mono text-neutral-400 px-1">No</button></div>
               : <button onClick={() => setConfirmClear(true)} className="text-[10px] font-mono px-2.5 py-1 rounded border border-neutral-200 text-neutral-400 hover:text-red-500">Clear</button>
@@ -671,20 +689,52 @@ export default function TechnicalPage() {
           )}
         </div>
 
-        {showLog && (
+        {/* Right panels */}
+        {(showLog || showHistory) && (
           <div className="w-72 border-l border-neutral-100 bg-white overflow-y-auto shrink-0">
-            <div className="p-4">
-              <h3 className="text-xs font-mono uppercase tracking-widest text-neutral-500 mb-4">Activity Log</h3>
-              {logEntries.map((node) => (
-                <div key={node.id} className="border-b border-neutral-50 pb-2 mb-2">
-                  <p className="text-[10px] font-medium text-black">{node.title}</p>
-                  <p className="text-[9px] font-mono text-neutral-400">By {node.createdBy?.split("@")[0] || "?"}</p>
-                  {node.owner && <p className="text-[9px] font-mono text-blue-500">@{node.owner.split("@")[0]}</p>}
-                  <p className="text-[8px] font-mono text-neutral-300">{new Date(node.updatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+            {showLog && (
+              <div className="p-4 border-b border-neutral-100">
+                <h3 className="text-xs font-mono uppercase tracking-widest text-neutral-500 mb-4">Activity Log</h3>
+                {logEntries.map((node) => (
+                  <div key={node.id} className="border-b border-neutral-50 pb-2 mb-2">
+                    <p className="text-[10px] font-medium text-black">{node.title}</p>
+                    <p className="text-[9px] font-mono text-neutral-400">By {node.createdBy?.split("@")[0] || "?"}</p>
+                    {node.owner && <p className="text-[9px] font-mono text-blue-500">@{node.owner.split("@")[0]}</p>}
+                    <p className="text-[8px] font-mono text-neutral-300">{new Date(node.updatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+                  </div>
+                ))}
+                {logEntries.length === 0 && <p className="text-[10px] font-mono text-neutral-300">No activity</p>}
+              </div>
+            )}
+            {showHistory && (
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xs font-mono uppercase tracking-widest text-neutral-500">Canvas History</h3>
+                  <button onClick={() => { saveSnapshot("manual"); mutateSnapshots(); }}
+                    className="text-[9px] font-mono text-neutral-400 hover:text-black border border-neutral-200 rounded px-1.5 py-0.5">Save now</button>
                 </div>
-              ))}
-              {logEntries.length === 0 && <p className="text-[10px] font-mono text-neutral-300">No activity</p>}
-            </div>
+                {snapshots.length === 0 ? (
+                  <p className="text-[10px] font-mono text-neutral-300">No snapshots yet. They are created automatically before changes.</p>
+                ) : (
+                  snapshots.map((snap) => (
+                    <div key={snap.id} className="border-b border-neutral-50 pb-2 mb-2 flex items-center justify-between">
+                      <div>
+                        <p className="text-[10px] font-medium text-black">
+                          {snap.label === "pre-clear" ? "Before clear" : snap.label === "pre-restore" ? "Before restore" : snap.label === "manual" ? "Manual save" : "Auto-save"}
+                        </p>
+                        <p className="text-[8px] font-mono text-neutral-400">
+                          {snap.createdBy?.split("@")[0] || "?"} &middot; {new Date(snap.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        </p>
+                      </div>
+                      {isAdmin && (
+                        <button onClick={() => restoreSnapshot(snap.id)}
+                          className="text-[9px] font-mono text-blue-500 hover:text-blue-700 border border-blue-200 rounded px-1.5 py-0.5">Restore</button>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
