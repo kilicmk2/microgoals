@@ -28,33 +28,35 @@ function cardW(title: string): number {
   return Math.max(MIN_W, Math.min(MAX_W, title.length * 6.5 + 50));
 }
 
-// Find best edge pair between two cards for arrow routing
-function edgePoints(from: CanvasNode, to: CanvasNode): { x1: number; y1: number; x2: number; y2: number } {
+// Edge point with outward direction normal
+interface EdgePoint { x: number; y: number; nx: number; ny: number }
+
+function edgePoints(from: CanvasNode, to: CanvasNode): { p1: EdgePoint; p2: EdgePoint } {
   const fw = cardW(from.title), tw = cardW(to.title);
   const fcx = from.x + fw / 2, fcy = from.y + CARD_H / 2;
   const tcx = to.x + tw / 2, tcy = to.y + CARD_H / 2;
 
-  // 4 edge midpoints for each card
-  const fromEdges = [
-    { x: from.x + fw, y: fcy, side: "right" },    // right
-    { x: from.x, y: fcy, side: "left" },            // left
-    { x: fcx, y: from.y + CARD_H, side: "bottom" }, // bottom
-    { x: fcx, y: from.y, side: "top" },              // top
+  // 4 edge midpoints with outward normals for each card
+  const fromEdges: EdgePoint[] = [
+    { x: from.x + fw, y: fcy, nx: 1, ny: 0 },      // right
+    { x: from.x, y: fcy, nx: -1, ny: 0 },            // left
+    { x: fcx, y: from.y + CARD_H, nx: 0, ny: 1 },   // bottom
+    { x: fcx, y: from.y, nx: 0, ny: -1 },             // top
   ];
-  const toEdges = [
-    { x: to.x, y: tcy, side: "left" },
-    { x: to.x + tw, y: tcy, side: "right" },
-    { x: tcx, y: to.y, side: "top" },
-    { x: tcx, y: to.y + CARD_H, side: "bottom" },
+  const toEdges: EdgePoint[] = [
+    { x: to.x, y: tcy, nx: -1, ny: 0 },               // left
+    { x: to.x + tw, y: tcy, nx: 1, ny: 0 },           // right
+    { x: tcx, y: to.y, nx: 0, ny: -1 },                // top
+    { x: tcx, y: to.y + CARD_H, nx: 0, ny: 1 },      // bottom
   ];
 
-  // Find pair with shortest distance
-  let best = { x1: fromEdges[0].x, y1: fromEdges[0].y, x2: toEdges[0].x, y2: toEdges[0].y };
+  // Pick pair with shortest distance
+  let best = { p1: fromEdges[0], p2: toEdges[0] };
   let bestDist = Infinity;
   for (const fe of fromEdges) {
     for (const te of toEdges) {
       const d = (fe.x - te.x) ** 2 + (fe.y - te.y) ** 2;
-      if (d < bestDist) { bestDist = d; best = { x1: fe.x, y1: fe.y, x2: te.x, y2: te.y }; }
+      if (d < bestDist) { bestDist = d; best = { p1: fe, p2: te }; }
     }
   }
   return best;
@@ -186,10 +188,10 @@ export default function TechnicalPage() {
     }
     // Also erase arrows
     for (const { from, to } of arrows) {
-      const ep = edgePoints(from, to);
+      const { p1, p2 } = edgePoints(from, to);
       for (let i = 0; i <= 10; i++) {
         const t = i / 10;
-        if (((ep.x1 + (ep.x2 - ep.x1) * t - cx) ** 2 + (ep.y1 + (ep.y2 - ep.y1) * t - cy) ** 2) < R2) { deleteArrow(from.id, to.id); break; }
+        if (((p1.x + (p2.x - p1.x) * t - cx) ** 2 + (p1.y + (p2.y - p1.y) * t - cy) ** 2) < R2) { deleteArrow(from.id, to.id); break; }
       }
     }
   }
@@ -627,10 +629,13 @@ export default function TechnicalPage() {
                 </marker>
               </defs>
               {arrows.map(({ from, to, key }) => {
-                const ep = edgePoints(from, to);
-                const dx = ep.x2 - ep.x1, dy = ep.y2 - ep.y1;
-                const cx1 = ep.x1 + dx * 0.4, cy1 = ep.y1, cx2 = ep.x2 - dx * 0.4, cy2 = ep.y2;
-                const pathD = `M ${ep.x1} ${ep.y1} C ${cx1} ${cy1} ${cx2} ${cy2} ${ep.x2} ${ep.y2}`;
+                const { p1, p2 } = edgePoints(from, to);
+                // Control points extend outward from each edge, proportional to distance
+                const dist = Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2);
+                const offset = Math.min(dist * 0.4, 80); // how far control points extend
+                const cx1 = p1.x + p1.nx * offset, cy1 = p1.y + p1.ny * offset;
+                const cx2 = p2.x + p2.nx * offset, cy2 = p2.y + p2.ny * offset;
+                const pathD = `M ${p1.x} ${p1.y} C ${cx1} ${cy1} ${cx2} ${cy2} ${p2.x} ${p2.y}`;
                 return (
                   <g key={key}>
                     <path d={pathD} fill="none" stroke="#9ca3af" strokeWidth={1.5} markerEnd="url(#canvas-arrow)" style={{ pointerEvents: "none" }} />
