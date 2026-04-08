@@ -90,6 +90,11 @@ export default function TechnicalPage() {
 
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
+  const zoomRef = useRef(1);
+  const panRef = useRef({ x: 0, y: 0 });
+  // Keep refs in sync
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+  useEffect(() => { panRef.current = pan; }, [pan]);
   const isPanning = useRef(false);
   const panStart = useRef({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -111,9 +116,21 @@ export default function TechnicalPage() {
   useEffect(() => {
     const el = canvasRef.current;
     if (!el) return;
-    const h = (e: WheelEvent) => { e.preventDefault(); e.stopPropagation(); };
+    // Handle ALL zoom via native listener (React onWheel is passive and can't preventDefault)
+    const h = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const r = el.getBoundingClientRect();
+      // Trackpad pinch uses ctrlKey, regular scroll doesn't
+      const delta = e.ctrlKey ? e.deltaY * 3 : e.deltaY;
+      const f = delta > 0 ? 0.95 : 1.05;
+      const nz = Math.max(0.2, Math.min(4, zoomRef.current * f));
+      const mx = e.clientX - r.left, my = e.clientY - r.top;
+      const p = panRef.current;
+      setPan({ x: mx - (mx - p.x) * (nz / zoomRef.current), y: my - (my - p.y) * (nz / zoomRef.current) });
+      setZoom(nz);
+    };
     el.addEventListener("wheel", h, { passive: false });
-    // Also block on the document level to prevent browser zoom
     const docH = (e: WheelEvent) => { if (e.ctrlKey || e.metaKey) e.preventDefault(); };
     document.addEventListener("wheel", docH, { passive: false });
     return () => { el.removeEventListener("wheel", h); document.removeEventListener("wheel", docH); };
@@ -518,13 +535,7 @@ export default function TechnicalPage() {
           onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp}
           onMouseLeave={() => { isPanning.current = false; setArrowDrag(null); selRectStart.current = null; setSelRect(null); if (isErasing.current) { isErasing.current = false; flushErase(); } if (isDrawing.current) { isDrawing.current = false; setCurrentStroke([]); }
             if (draggingNode.current) { for (const id of selectedIds) { const n = nodes.find((x) => x.id === id); if (n) updateNode(id, { x: n.x, y: n.y }); } draggingNode.current = null; } }}
-          onDoubleClick={handleDoubleClick}
-          onWheel={(e) => {
-            e.preventDefault(); const r = canvasRef.current?.getBoundingClientRect(); if (!r) return;
-            const f = e.deltaY > 0 ? 0.95 : 1.05, nz = Math.max(0.2, Math.min(4, zoom * f));
-            const mx = e.clientX - r.left, my = e.clientY - r.top;
-            setPan({ x: mx - (mx - pan.x) * (nz / zoom), y: my - (my - pan.y) * (nz / zoom) }); setZoom(nz);
-          }}>
+          onDoubleClick={handleDoubleClick}>
 
           <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: "radial-gradient(circle, #e5e5e5 1px, transparent 1px)", backgroundSize: `${30 * zoom}px ${30 * zoom}px`, backgroundPosition: `${pan.x}px ${pan.y}px` }} />
 
