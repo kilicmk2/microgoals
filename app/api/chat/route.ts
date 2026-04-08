@@ -85,8 +85,41 @@ const TOOLS = [
     },
   },
   {
+    name: "connect_canvas_tasks",
+    description: "Connect two canvas tasks with a directed arrow. Use after creating tasks to build a workflow/flowchart. The arrow goes from source to target.",
+    parameters: {
+      type: "object",
+      properties: {
+        fromTitle: { type: "string", description: "Title (or partial title) of the source task" },
+        toTitle: { type: "string", description: "Title (or partial title) of the target task" },
+      },
+      required: ["fromTitle", "toTitle"],
+    },
+  },
+  {
+    name: "batch_connect_canvas_tasks",
+    description: "Connect multiple pairs of canvas tasks with arrows at once. Each connection is a fromTitle→toTitle pair. Use for building flowcharts efficiently.",
+    parameters: {
+      type: "object",
+      properties: {
+        connections: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              fromTitle: { type: "string" },
+              toTitle: { type: "string" },
+            },
+            required: ["fromTitle", "toTitle"],
+          },
+        },
+      },
+      required: ["connections"],
+    },
+  },
+  {
     name: "list_canvas_tasks",
-    description: "List all tasks on the Technical canvas with details.",
+    description: "List all tasks on the Technical canvas with details including their IDs for connecting.",
     parameters: { type: "object", properties: {} },
   },
   {
@@ -268,10 +301,59 @@ async function executeTool(name: string, args: Record<string, unknown>, userId: 
       return `Created canvas task: "${node.title}"`;
     }
 
+    case "connect_canvas_tasks": {
+      const tasks = await db.select().from(canvasNodes);
+      const fromSearch = (args.fromTitle as string).toLowerCase();
+      const toSearch = (args.toTitle as string).toLowerCase();
+      const fromNode = tasks.find((t) => t.title.toLowerCase().includes(fromSearch));
+      const toNode = tasks.find((t) => t.title.toLowerCase().includes(toSearch));
+      if (!fromNode) return `No task found matching "${args.fromTitle}"`;
+      if (!toNode) return `No task found matching "${args.toTitle}"`;
+      if (fromNode.id === toNode.id) return "Cannot connect a task to itself.";
+      const existing = JSON.parse((fromNode.connectedTo as string) || "[]") as string[];
+      if (existing.includes(toNode.id)) return `Already connected: "${fromNode.title}" → "${toNode.title}"`;
+      existing.push(toNode.id);
+      await db.update(canvasNodes).set({ connectedTo: JSON.stringify(existing), updatedAt: new Date() }).where(eq(canvasNodes.id, fromNode.id));
+      return `Connected: "${fromNode.title}" → "${toNode.title}"`;
+    }
+
+    case "batch_connect_canvas_tasks": {
+      const connections = args.connections as Array<{ fromTitle: string; toTitle: string }>;
+      const tasks = await db.select().from(canvasNodes);
+      const results: string[] = [];
+      // Cache connectedTo updates to batch them
+      const updates: Record<string, string[]> = {};
+      for (const { fromTitle, toTitle } of connections) {
+        const fromNode = tasks.find((t) => t.title.toLowerCase().includes(fromTitle.toLowerCase()));
+        const toNode = tasks.find((t) => t.title.toLowerCase().includes(toTitle.toLowerCase()));
+        if (!fromNode) { results.push(`✗ "${fromTitle}" not found`); continue; }
+        if (!toNode) { results.push(`✗ "${toTitle}" not found`); continue; }
+        if (fromNode.id === toNode.id) { results.push(`✗ "${fromTitle}" → self`); continue; }
+        if (!updates[fromNode.id]) {
+          updates[fromNode.id] = JSON.parse((fromNode.connectedTo as string) || "[]");
+        }
+        if (!updates[fromNode.id].includes(toNode.id)) {
+          updates[fromNode.id].push(toNode.id);
+          results.push(`✓ "${fromNode.title}" → "${toNode.title}"`);
+        } else {
+          results.push(`– "${fromNode.title}" → "${toNode.title}" (already connected)`);
+        }
+      }
+      // Write all updates
+      for (const [nodeId, conns] of Object.entries(updates)) {
+        await db.update(canvasNodes).set({ connectedTo: JSON.stringify(conns), updatedAt: new Date() }).where(eq(canvasNodes.id, nodeId));
+      }
+      return `Connected ${results.filter((r) => r.startsWith("✓")).length}/${connections.length} pairs:\n${results.join("\n")}`;
+    }
+
     case "list_canvas_tasks": {
       const tasks = await db.select().from(canvasNodes).orderBy(asc(canvasNodes.createdAt));
       if (!tasks.length) return "No tasks on the Technical canvas.";
-      return `${tasks.length} canvas tasks:\n${tasks.map((t) => `• "${t.title}" — ${t.status}${t.owner ? ` @${t.owner.split("@")[0]}` : ""}${t.estimatedHours ? ` ~${t.estimatedHours}h` : ""}`).join("\n")}`;
+      return `${tasks.length} canvas tasks:\n${tasks.map((t) => {
+        const conns = JSON.parse((t.connectedTo as string) || "[]") as string[];
+        const connNames = conns.map((cid) => tasks.find((x) => x.id === cid)?.title || "?").join(", ");
+        return `• "${t.title}" — ${t.status}${t.owner ? ` @${t.owner.split("@")[0]}` : ""}${connNames ? ` → [${connNames}]` : ""}`;
+      }).join("\n")}`;
     }
 
     case "save_memory": {
@@ -439,6 +521,8 @@ ${canvas.slice(0, 10).map((t) => `  "${t.title}" ${t.status}${t.owner ? ` @${t.o
 - User says "add/create/set" → **create_goal** or **create_canvas_task** or **batch_create_goals**
 - User says "update/change/mark/move" → **update_goal**
 - User says "delete/remove" → **delete_goal**
+- User pastes a flowchart/mermaid/workflow → **create_canvas_task** for each node (with x,y positions for layout) + **batch_connect_canvas_tasks** for all edges. IMPORTANT: space nodes with x gaps of ~250px per column and y gaps of ~80px per row. Arrange in a left-to-right flow. Example: column 1 at x=100, column 2 at x=350, column 3 at x=600. Rows at y=100, y=180, y=260.
+- User says "connect X to Y" → **connect_canvas_tasks**
 - User says "show/list/what are" → **list_goals** or **list_canvas_tasks**
 - User says "analyze/assess/how are we" → **analyze_goals**
 - User says "remember/note/save" → **save_memory**
