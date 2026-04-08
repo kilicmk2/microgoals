@@ -85,6 +85,8 @@ export default function TechnicalPage() {
   const [timelineWeeks, setTimelineWeeks] = useState(12);
   const [confirmClear, setConfirmClear] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [snapshotIndex, setSnapshotIndex] = useState(-1); // -1 = current live state
+  const [isRestoring, setIsRestoring] = useState(false);
   const [arrowDrag, setArrowDrag] = useState<{ fromId: string; mx: number; my: number } | null>(null);
   // Selection rectangle
   const [selRect, setSelRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -259,12 +261,52 @@ export default function TechnicalPage() {
   // Save a snapshot of current canvas state
   async function saveSnapshot(label = "auto") {
     await fetch("/api/canvas/snapshots", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ label }) });
+    mutateSnapshots();
   }
 
   // Restore a snapshot
   async function restoreSnapshot(snapshotId: string) {
+    setIsRestoring(true);
     await fetch("/api/canvas/snapshots", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshotId }) });
-    mutateNodes(); mutateStrokes(); setSelectedIds(new Set()); setShowHistory(false);
+    await mutateNodes(); await mutateStrokes(); await mutateSnapshots();
+    setSelectedIds(new Set()); setShowHistory(false); setIsRestoring(false);
+  }
+
+  // Back: go to previous snapshot (older)
+  async function goBack() {
+    if (isRestoring) return;
+    const newIdx = snapshotIndex + 1;
+    if (newIdx >= snapshots.length) return;
+    // If at live state (-1), save current state first
+    if (snapshotIndex === -1) {
+      await saveSnapshot("before-navigate");
+      await mutateSnapshots();
+    }
+    // snapshots are newest-first, so index 0 = most recent, 1 = older, etc.
+    const snap = snapshots[newIdx];
+    if (!snap) return;
+    setSnapshotIndex(newIdx);
+    setIsRestoring(true);
+    await fetch("/api/canvas/snapshots", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshotId: snap.id }) });
+    await mutateNodes(); await mutateStrokes(); await mutateSnapshots();
+    setSelectedIds(new Set()); setIsRestoring(false);
+  }
+
+  // Forward: go to newer snapshot
+  async function goForward() {
+    if (isRestoring) return;
+    if (snapshotIndex <= 0) { setSnapshotIndex(-1); return; }
+    const newIdx = snapshotIndex - 1;
+    // snapshots[0] is newest
+    // But after navigating, new "pre-restore" snapshots were created
+    // So we need to re-fetch and go to the right one
+    const snap = snapshots[newIdx];
+    if (!snap) { setSnapshotIndex(-1); return; }
+    setSnapshotIndex(newIdx);
+    setIsRestoring(true);
+    await fetch("/api/canvas/snapshots", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshotId: snap.id }) });
+    await mutateNodes(); await mutateStrokes(); await mutateSnapshots();
+    setSelectedIds(new Set()); setIsRestoring(false);
   }
 
   async function clearAll() {
@@ -494,6 +536,13 @@ export default function TechnicalPage() {
                     tool === t ? (t === "eraser" ? "bg-red-500 text-white" : "bg-black text-white") : "bg-transparent text-neutral-500 hover:bg-neutral-50"
                   }`}><span className="text-[11px]">{icon}</span><span>{label}</span></button>
               ))}
+            </div>
+            {/* Back / Forward */}
+            <div className="flex items-center border border-neutral-200 rounded overflow-hidden">
+              <button onClick={goBack} disabled={isRestoring || snapshots.length === 0}
+                className="text-[11px] px-1.5 py-0.5 text-neutral-500 hover:bg-neutral-50 disabled:opacity-20 disabled:cursor-default" title="Undo (go back)">←</button>
+              <button onClick={goForward} disabled={isRestoring || snapshotIndex <= 0}
+                className="text-[11px] px-1.5 py-0.5 text-neutral-500 hover:bg-neutral-50 disabled:opacity-20 disabled:cursor-default" title="Redo (go forward)">→</button>
             </div>
             <span className="text-neutral-200">|</span>
             <button onClick={() => setShowTimeline(!showTimeline)} className={`text-[10px] font-mono px-2.5 py-1 rounded border transition-colors ${showTimeline ? "bg-black text-white border-black" : "bg-transparent text-neutral-500 border-neutral-200"}`}>Timeline</button>
