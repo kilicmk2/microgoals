@@ -122,24 +122,34 @@ export default function TechnicalPage() {
   useEffect(() => {
     const el = canvasRef.current;
     if (!el) return;
-    // Handle ALL zoom via native listener (React onWheel is passive and can't preventDefault)
+    // Canvas zoom handler — works for mouse wheel AND trackpad pinch
     const h = (e: WheelEvent) => {
       e.preventDefault();
       e.stopPropagation();
       const r = el.getBoundingClientRect();
-      // Trackpad pinch uses ctrlKey, regular scroll doesn't
-      const delta = e.ctrlKey ? e.deltaY * 3 : e.deltaY;
-      const f = delta > 0 ? 0.95 : 1.05;
-      const nz = Math.max(0.2, Math.min(4, zoomRef.current * f));
+      // ctrlKey = trackpad pinch (smaller deltaY, multiply for sensitivity)
+      // no ctrlKey = mouse wheel (larger deltaY)
+      const sensitivity = e.ctrlKey ? 0.01 : 0.002;
+      const nz = Math.max(0.15, Math.min(5, zoomRef.current * (1 - e.deltaY * sensitivity)));
       const mx = e.clientX - r.left, my = e.clientY - r.top;
       const p = panRef.current;
       setPan({ x: mx - (mx - p.x) * (nz / zoomRef.current), y: my - (my - p.y) * (nz / zoomRef.current) });
       setZoom(nz);
     };
     el.addEventListener("wheel", h, { passive: false });
+    // Block browser zoom globally while on this page
     const docH = (e: WheelEvent) => { if (e.ctrlKey || e.metaKey) e.preventDefault(); };
     document.addEventListener("wheel", docH, { passive: false });
-    return () => { el.removeEventListener("wheel", h); document.removeEventListener("wheel", docH); };
+    // Also block gesturestart/gesturechange for Safari pinch
+    const gestureH = (e: Event) => { e.preventDefault(); };
+    document.addEventListener("gesturestart", gestureH);
+    document.addEventListener("gesturechange", gestureH);
+    return () => {
+      el.removeEventListener("wheel", h);
+      document.removeEventListener("wheel", docH);
+      document.removeEventListener("gesturestart", gestureH);
+      document.removeEventListener("gesturechange", gestureH);
+    };
   }, []);
 
   function pushUndo(a: UndoAction) { setUndoStack((s) => [...s.slice(-30), a]); setRedoStack([]); }
@@ -518,7 +528,7 @@ export default function TechnicalPage() {
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
-      <nav className="w-full border-b border-neutral-100 shrink-0 bg-white" style={{ position: "relative", zIndex: 50 }}>
+      <nav className="w-full border-b border-neutral-100 bg-white" style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 50, height: 48 }}>
         <div className="max-w-full mx-auto px-4 flex items-center justify-between h-12">
           <div className="flex items-center gap-4">
             <Link href="/" className="text-[10px] font-mono text-neutral-400 hover:text-black">&larr; Back</Link>
@@ -598,6 +608,7 @@ export default function TechnicalPage() {
         </div>
       </nav>
 
+      <div style={{ height: 48 }} /> {/* spacer for fixed nav */}
       <div className="flex-1 flex overflow-hidden">
         <div ref={canvasRef} className="flex-1 relative overflow-hidden"
           style={{ background: "#fafafa", cursor: cursorStyle }}
