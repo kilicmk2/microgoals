@@ -12,7 +12,7 @@ export async function GET() {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const result = await getDb()
-      .select({ id: canvasSnapshots.id, label: canvasSnapshots.label, createdBy: canvasSnapshots.createdBy, createdAt: canvasSnapshots.createdAt })
+      .select({ id: canvasSnapshots.id, label: canvasSnapshots.label, name: canvasSnapshots.name, flagged: canvasSnapshots.flagged, createdBy: canvasSnapshots.createdBy, createdAt: canvasSnapshots.createdAt })
       .from(canvasSnapshots)
       .orderBy(desc(canvasSnapshots.createdAt))
       .limit(50);
@@ -40,6 +40,8 @@ export async function POST(req: NextRequest) {
     // Save snapshot
     const [snap] = await db.insert(canvasSnapshots).values({
       label,
+      name: body.name || "",
+      flagged: body.flagged || false,
       nodesJson: JSON.stringify(nodes),
       strokesJson: JSON.stringify(strokes),
       createdBy: session.user.email ?? "",
@@ -70,8 +72,18 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Only admins can restore snapshots" }, { status: 403 });
     }
 
-    const { snapshotId } = await req.json();
+    const body = await req.json();
+    const { snapshotId } = body;
     const db = getDb();
+
+    // If just updating name/flagged (no restore)
+    if (body.action === "update") {
+      const updates: Record<string, unknown> = {};
+      if (body.name !== undefined) updates.name = body.name;
+      if (body.flagged !== undefined) updates.flagged = body.flagged;
+      await db.update(canvasSnapshots).set(updates).where(eq(canvasSnapshots.id, snapshotId));
+      return NextResponse.json({ ok: true });
+    }
 
     // Get the snapshot
     const [snap] = await db.select().from(canvasSnapshots).where(eq(canvasSnapshots.id, snapshotId));

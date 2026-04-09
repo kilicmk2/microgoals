@@ -106,8 +106,10 @@ export const canvasNodes = pgTable("canvas_nodes", {
 export const canvasSnapshots = pgTable("canvas_snapshots", {
   id: uuid("id").defaultRandom().primaryKey(),
   label: text("label").default("auto"), // "auto", "clear", "manual"
-  nodesJson: text("nodesJson").notNull(), // JSON array of all canvas_nodes
-  strokesJson: text("strokesJson").notNull(), // JSON array of all canvas_strokes
+  name: text("name").default(""), // user-given name
+  flagged: boolean("flagged").default(false),
+  nodesJson: text("nodesJson").notNull(),
+  strokesJson: text("strokesJson").notNull(),
   createdBy: text("createdBy"),
   createdAt: timestamp("createdAt", { mode: "date" }).defaultNow(),
 });

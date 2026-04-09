@@ -70,7 +70,7 @@ export default function TechnicalPage() {
   const { data: strokes = [], mutate: mutateStrokes } = useSWR<Stroke[]>(authenticated ? "/api/canvas/strokes" : null, fetcher);
   const { data: team = [] } = useSWR<string[]>(authenticated ? "/api/team" : null, fetcher);
   const { data: notifs = [], mutate: mutateNotifs } = useSWR<Notification[]>(authenticated ? "/api/notifications" : null, fetcher);
-  const { data: snapshots = [], mutate: mutateSnapshots } = useSWR<{ id: string; label: string; createdBy: string; createdAt: string }[]>(authenticated ? "/api/canvas/snapshots" : null, fetcher);
+  const { data: snapshots = [], mutate: mutateSnapshots } = useSWR<{ id: string; label: string; name: string; flagged: boolean; createdBy: string; createdAt: string }[]>(authenticated ? "/api/canvas/snapshots" : null, fetcher);
   const { messages: chatMsgs, sendMessage: chatSend, clearChat } = useChatMessages("technical");
   const chatSendMessage = useCallback(async (c: string) => { const r = await chatSend(c); mutateNodes(); return r; }, [chatSend, mutateNodes]);
 
@@ -87,6 +87,9 @@ export default function TechnicalPage() {
   const [timelineWeeks, setTimelineWeeks] = useState(12);
   const [confirmClear, setConfirmClear] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [historyFlaggedOnly, setHistoryFlaggedOnly] = useState(false);
+  const [renamingSnapId, setRenamingSnapId] = useState<string | null>(null);
+  const [snapRenameValue, setSnapRenameValue] = useState("");
   const [snapshotIndex, setSnapshotIndex] = useState(-1); // -1 = current live state
   const [isRestoring, setIsRestoring] = useState(false);
   const [arrowDrag, setArrowDrag] = useState<{ fromId: string; mx: number; my: number } | null>(null);
@@ -319,6 +322,18 @@ export default function TechnicalPage() {
     await fetch("/api/canvas/snapshots", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshotId: snap.id }) });
     await mutateNodes(); await mutateStrokes(); await mutateSnapshots();
     setSelectedIds(new Set()); setIsRestoring(false);
+  }
+
+  async function toggleSnapFlag(snapId: string, currentFlag: boolean) {
+    await fetch("/api/canvas/snapshots", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshotId: snapId, action: "update", flagged: !currentFlag }) });
+    mutateSnapshots();
+  }
+
+  async function renameSnap(snapId: string) {
+    if (!snapRenameValue.trim()) { setRenamingSnapId(null); return; }
+    await fetch("/api/canvas/snapshots", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshotId: snapId, action: "update", name: snapRenameValue.trim() }) });
+    mutateSnapshots();
+    setRenamingSnapId(null);
   }
 
   async function clearAll() {
@@ -771,35 +786,65 @@ export default function TechnicalPage() {
                 {logEntries.length === 0 && <p className="text-[10px] font-mono text-neutral-300">No activity</p>}
               </div>
             )}
-            {showHistory && (
+            {showHistory && (() => {
+              const filtered = historyFlaggedOnly ? snapshots.filter((s) => s.flagged) : snapshots;
+              return (
               <div className="p-4">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-xs font-mono uppercase tracking-widest text-neutral-500">Canvas History</h3>
-                  <button onClick={() => { saveSnapshot("manual"); mutateSnapshots(); }}
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xs font-mono uppercase tracking-widest text-neutral-500">History</h3>
+                  <button onClick={() => { saveSnapshot("manual"); }}
                     className="text-[9px] font-mono text-neutral-400 hover:text-black border border-neutral-200 rounded px-1.5 py-0.5">Save now</button>
                 </div>
-                {snapshots.length === 0 ? (
-                  <p className="text-[10px] font-mono text-neutral-300">No snapshots yet. They are created automatically before changes.</p>
+                {/* Filter toggle */}
+                <div className="flex items-center gap-2 mb-3">
+                  <button onClick={() => setHistoryFlaggedOnly(false)}
+                    className={`text-[9px] font-mono px-2 py-0.5 rounded ${!historyFlaggedOnly ? "bg-black text-white" : "text-neutral-400 hover:text-black"}`}>All</button>
+                  <button onClick={() => setHistoryFlaggedOnly(true)}
+                    className={`text-[9px] font-mono px-2 py-0.5 rounded flex items-center gap-1 ${historyFlaggedOnly ? "bg-black text-white" : "text-neutral-400 hover:text-black"}`}>
+                    ★ Flagged {snapshots.filter((s) => s.flagged).length > 0 && `(${snapshots.filter((s) => s.flagged).length})`}
+                  </button>
+                </div>
+                {filtered.length === 0 ? (
+                  <p className="text-[10px] font-mono text-neutral-300">{historyFlaggedOnly ? "No flagged snapshots." : "No snapshots yet."}</p>
                 ) : (
-                  snapshots.map((snap) => (
-                    <div key={snap.id} className="border-b border-neutral-50 pb-2 mb-2 flex items-center justify-between">
-                      <div>
-                        <p className="text-[10px] font-medium text-black">
-                          {snap.label === "pre-clear" ? "Before clear" : snap.label === "pre-restore" ? "Before restore" : snap.label === "manual" ? "Manual save" : "Auto-save"}
-                        </p>
-                        <p className="text-[8px] font-mono text-neutral-400">
-                          {snap.createdBy?.split("@")[0] || "?"} &middot; {new Date(snap.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
-                        </p>
+                  filtered.map((snap) => (
+                    <div key={snap.id} className={`border-b border-neutral-50 pb-2 mb-2 ${snap.flagged ? "bg-yellow-50 -mx-2 px-2 rounded" : ""}`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          {/* Name — click to rename */}
+                          {renamingSnapId === snap.id ? (
+                            <input className="text-[10px] font-medium text-black bg-transparent border-b border-black outline-none w-full"
+                              value={snapRenameValue} onChange={(e) => setSnapRenameValue(e.target.value)}
+                              onBlur={() => renameSnap(snap.id)}
+                              onKeyDown={(e) => { if (e.key === "Enter") renameSnap(snap.id); if (e.key === "Escape") setRenamingSnapId(null); }}
+                              autoFocus />
+                          ) : (
+                            <p className="text-[10px] font-medium text-black cursor-text truncate"
+                              onClick={() => { setRenamingSnapId(snap.id); setSnapRenameValue(snap.name || (snap.label === "pre-clear" ? "Before clear" : snap.label === "manual" ? "Manual save" : "Auto-save")); }}>
+                              {snap.name || (snap.label === "pre-clear" ? "Before clear" : snap.label === "pre-restore" ? "Before restore" : snap.label === "manual" ? "Manual save" : "Auto-save")}
+                            </p>
+                          )}
+                          <p className="text-[8px] font-mono text-neutral-400">
+                            {snap.createdBy?.split("@")[0] || "?"} &middot; {new Date(snap.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0 ml-2">
+                          {/* Flag toggle */}
+                          <button onClick={() => toggleSnapFlag(snap.id, snap.flagged)}
+                            className={`text-[11px] px-1 transition-colors ${snap.flagged ? "text-yellow-500" : "text-neutral-300 hover:text-yellow-500"}`}
+                            title={snap.flagged ? "Unflag" : "Flag"}>★</button>
+                          {/* Restore */}
+                          {isAdmin && (
+                            <button onClick={() => restoreSnapshot(snap.id)}
+                              className="text-[9px] font-mono text-blue-500 hover:text-blue-700 border border-blue-200 rounded px-1.5 py-0.5">Restore</button>
+                          )}
+                        </div>
                       </div>
-                      {isAdmin && (
-                        <button onClick={() => restoreSnapshot(snap.id)}
-                          className="text-[9px] font-mono text-blue-500 hover:text-blue-700 border border-blue-200 rounded px-1.5 py-0.5">Restore</button>
-                      )}
                     </div>
                   ))
                 )}
               </div>
-            )}
+              ); })()}
           </div>
         )}
       </div>
