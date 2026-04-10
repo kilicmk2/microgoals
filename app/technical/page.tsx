@@ -248,11 +248,16 @@ export default function TechnicalPage() {
     for (const id of selectedIds) await deleteNode(id);
   }, [selectedIds, deleteNode]);
 
-  const saveStroke = useCallback(async (pts: { x: number; y: number }[]) => {
+  const strokeCounter = useRef(0);
+  async function saveStroke(pts: { x: number; y: number }[]) {
     if (pts.length < 2) return;
+    // Optimistic: add temp stroke locally so it doesn't flash away
+    strokeCounter.current += 1;
+    const tempStroke: Stroke = { id: `temp-stroke-${strokeCounter.current}`, points: pts, color: "#000000", width: 2, createdBy: null };
+    mutateStrokes([...strokes, tempStroke], false);
     await fetch("/api/canvas/strokes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ points: pts, color: "#000000", width: 2 }) });
     mutateStrokes();
-  }, [mutateStrokes]);
+  }
 
   const assignOwner = useCallback(async (nodeId: string, email: string) => {
     await updateNode(nodeId, { owner: email });
