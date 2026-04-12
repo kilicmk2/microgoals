@@ -85,6 +85,9 @@ export default function TechnicalPage() {
   const [tool, setTool] = useState<"select" | "draw" | "eraser">("select");
   const [showTimeline, setShowTimeline] = useState(true);
   const [timelineWeeks, setTimelineWeeks] = useState(12);
+  const [timelineMode, setTimelineMode] = useState<"preset" | "custom">("preset");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [historyFlaggedOnly, setHistoryFlaggedOnly] = useState(false);
@@ -537,7 +540,11 @@ export default function TechnicalPage() {
     return () => document.removeEventListener("keydown", handler);
   });
 
-  const timelineStart = new Date();
+  // Timeline dates
+  const timelineStart = timelineMode === "custom" && customStart ? new Date(customStart) : new Date();
+  const timelineEnd = timelineMode === "custom" && customEnd ? new Date(customEnd) : new Date(timelineStart.getTime() + timelineWeeks * 7 * 86400000);
+  const timelineDays = Math.max(1, Math.round((timelineEnd.getTime() - timelineStart.getTime()) / 86400000));
+  const timelineTotalWeeks = Math.max(1, Math.ceil(timelineDays / 7));
   const logEntries = [...nodes].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).slice(0, 30);
 
   if (status === "loading" || status === "unauthenticated") {
@@ -579,10 +586,36 @@ export default function TechnicalPage() {
             <span className="text-neutral-200">|</span>
             <button onClick={() => setShowTimeline(!showTimeline)} className={`text-[10px] font-mono px-2.5 py-1 rounded border transition-colors ${showTimeline ? "bg-black text-white border-black" : "bg-transparent text-neutral-500 border-neutral-200"}`}>Timeline</button>
             {showTimeline && (
-              <select value={timelineWeeks} onChange={(e) => { const w = parseInt(e.target.value); setTimelineWeeks(w); const r = canvasRef.current?.getBoundingClientRect(); if (r) { setZoom(Math.max(0.2, Math.min((r.width - 100) / (w * 120), 2))); setPan({ x: 50, y: 50 }); } }}
-                className="text-[10px] font-mono border border-neutral-200 rounded px-1.5 py-0.5 outline-none">
-                <option value="4">4w</option><option value="8">8w</option><option value="12">12w</option><option value="26">6m</option><option value="52">1y</option>
-              </select>
+              <div className="flex items-center gap-1">
+                <select value={timelineMode === "custom" ? "custom" : String(timelineWeeks)} onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "custom") { setTimelineMode("custom"); return; }
+                  setTimelineMode("preset");
+                  const w = parseInt(v); setTimelineWeeks(w);
+                  const r = canvasRef.current?.getBoundingClientRect();
+                  if (r) { setZoom(Math.max(0.2, Math.min((r.width - 100) / (w * 120), 2))); setPan({ x: 50, y: 50 }); }
+                }} className="text-[10px] font-mono border border-neutral-200 rounded px-1.5 py-0.5 outline-none">
+                  <option value="4">4w</option><option value="8">8w</option><option value="12">12w</option><option value="26">6m</option><option value="52">1y</option>
+                  <option value="custom">Custom</option>
+                </select>
+                {timelineMode === "custom" && (
+                  <>
+                    <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)}
+                      className="text-[9px] font-mono border border-neutral-200 rounded px-1 py-0.5 outline-none w-28" />
+                    <span className="text-[9px] text-neutral-400">→</span>
+                    <input type="date" value={customEnd} onChange={(e) => {
+                      setCustomEnd(e.target.value);
+                      // Auto-fit zoom to custom range
+                      if (customStart && e.target.value) {
+                        const days = Math.round((new Date(e.target.value).getTime() - new Date(customStart).getTime()) / 86400000);
+                        const weeks = Math.max(1, Math.ceil(days / 7));
+                        const r = canvasRef.current?.getBoundingClientRect();
+                        if (r) { setZoom(Math.max(0.2, Math.min((r.width - 100) / (weeks * 120), 2))); setPan({ x: 50, y: 50 }); }
+                      }
+                    }} className="text-[9px] font-mono border border-neutral-200 rounded px-1 py-0.5 outline-none w-28" />
+                  </>
+                )}
+              </div>
             )}
             <span className="text-neutral-200">|</span>
             <button onClick={() => setShowLog(!showLog)} className={`text-[10px] font-mono px-2.5 py-1 rounded border transition-colors ${showLog ? "bg-black text-white border-black" : "bg-transparent text-neutral-500 border-neutral-200"}`}>Log</button>
@@ -596,7 +629,7 @@ export default function TechnicalPage() {
               <span className="text-[10px] font-mono text-neutral-400 px-1 border-x border-neutral-200">{Math.round(zoom * 100)}%</span>
               <button onClick={() => setZoom((z) => Math.min(4, z * 1.25))} className="text-[10px] font-mono px-1.5 py-0.5 text-neutral-500 hover:bg-neutral-50">+</button>
             </div>
-            <button onClick={() => { const r = canvasRef.current?.getBoundingClientRect(); if (!r) { setZoom(1); setPan({ x: 50, y: 50 }); return; } setZoom(Math.max(0.2, Math.min((r.width - 100) / (timelineWeeks * 120), 2))); setPan({ x: 50, y: 50 }); }}
+            <button onClick={() => { const r = canvasRef.current?.getBoundingClientRect(); if (!r) { setZoom(1); setPan({ x: 50, y: 50 }); return; } setZoom(Math.max(0.2, Math.min((r.width - 100) / (timelineTotalWeeks * 120), 2))); setPan({ x: 50, y: 50 }); }}
               className="text-[10px] font-mono text-neutral-400 hover:text-black px-1">Reset</button>
             {selectedIds.size > 0 && <span className="text-[9px] font-mono text-blue-500">{selectedIds.size} selected</span>}
             <div className="relative ml-1">
@@ -641,9 +674,9 @@ export default function TechnicalPage() {
 
           <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: "0 0" }}>
             {showTimeline && (
-              <div className="absolute pointer-events-none" style={{ left: 0, top: 20, width: `${timelineWeeks * 120}px`, zIndex: 5 }}>
+              <div className="absolute pointer-events-none" style={{ left: 0, top: 20, width: `${timelineTotalWeeks * 120}px`, zIndex: 5 }}>
                 <div className="h-px bg-neutral-300 w-full" style={{ opacity: 0.4 }} />
-                {Array.from({ length: timelineWeeks + 1 }).map((_, i) => {
+                {Array.from({ length: timelineTotalWeeks + 1 }).map((_, i) => {
                   const d = new Date(timelineStart.getTime() + i * 7 * 86400000);
                   return <div key={i} className="absolute" style={{ left: i * 120, top: -6 }}>
                     <div className="w-px h-3 bg-neutral-300" style={{ opacity: 0.4 }} />
